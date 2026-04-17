@@ -1,0 +1,87 @@
+<!ELEMENT dtbook (head, book)>
+<!ATTLIST dtbook version CDATA #IMPLIED xml:lang CDATA #IMPLIED>
+
+<!ELEMENT head (meta*)>
+<!ELEMENT meta EMPTY>
+<!ATTLIST meta
+    name CDATA #REQUIRED
+    content CDATA #IMPLIED>
+
+<!ELEMENT book (frontmatter, bodymatter, rearmatter)>
+<!ELEMENT frontmatter ANY>
+<!ELEMENT bodymatter ANY>
+<!ELEMENT rearmatter ANY>
+
+<!ELEMENT doctitle ANY>
+<!ELEMENT docauthor ANY>
+
+<!ELEMENT level1 ANY>
+<!ELEMENT level2 ANY>
+<!ELEMENT level3 ANY>
+<!ELEMENT level4 ANY>
+<!ELEMENT level5 ANY>
+<!ELEMENT level6 ANY>
+<!ATTLIST level1 id CDATA #IMPLIED class CDATA #IMPLIED>
+<!ATTLIST level2 id CDATA #IMPLIED class CDATA #IMPLIED>
+<!ATTLIST level3 id CDATA #IMPLIED class CDATA #IMPLIED>
+<!ATTLIST level4 id CDATA #IMPLIED class CDATA #IMPLIED>
+<!ATTLIST level5 id CDATA #IMPLIED class CDATA #IMPLIED>
+<!ATTLIST level6 id CDATA #IMPLIED class CDATA #IMPLIED>
+
+<!ELEMENT h1 ANY>
+<!ELEMENT h2 ANY>
+<!ELEMENT h3 ANY>
+<!ELEMENT h4 ANY>
+<!ELEMENT h5 ANY>
+<!ELEMENT h6 ANY>
+
+<!ELEMENT p ANY>
+<!ELEMENT strong ANY>
+<!ELEMENT em ANY>
+<!ATTLIST p class CDATA #IMPLIED id CDATA #IMPLIED>
+
+<!ELEMENT pagenum (#PCDATA)>
+<!ATTLIST pagenum
+    page CDATA #IMPLIED
+    id ID #IMPLIED>
+
+<!ELEMENT list ANY>
+<!ATTLIST list
+    type CDATA #IMPLIED
+    class CDATA #IMPLIED>
+
+<!ELEMENT li ANY>
+<!ATTLIST li class CDATA #IMPLIED id CDATA #IMPLIED>
+
+<!ELEMENT table ANY>
+<!ELEMENT thead ANY>
+<!ELEMENT tbody ANY>
+<!ELEMENT tfoot ANY>
+<!ELEMENT tr ANY>
+<!ELEMENT td ANY>
+<!ATTLIST td
+    colspan CDATA #IMPLIED
+    rowspan CDATA #IMPLIED
+    scope CDATA #IMPLIED>
+
+<!ELEMENT th ANY>
+<!ATTLIST th
+    colspan CDATA #IMPLIED
+    rowspan CDATA #IMPLIED
+    scope CDATA #IMPLIED>
+
+<!ELEMENT caption ANY>
+
+<!ELEMENT imggroup ANY>
+<!ELEMENT img EMPTY>
+<!ATTLIST img
+    src CDATA #IMPLIED
+    alt CDATA #IMPLIED>
+
+<!ELEMENT linegroup ANY>
+<!ELEMENT line ANY>
+<!ELEMENT linenum (#PCDATA)>
+
+<!ELEMENT sidebar ANY>
+<!ATTLIST sidebar render CDATA #IMPLIED>
+<!ELEMENT hd ANY>

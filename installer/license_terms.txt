@@ -1,0 +1,13 @@
+Technocops DDC Converter (HTML to XML) Pro
+Terms and Conditions
+
+1. This software is licensed, not sold, for internal evaluation and approved production use only.
+2. The trial license is valid for 3 calendar days from first launch and is limited to the authorized evaluating organization.
+3. Redistribution, resale, rental, sublicensing, public sharing, or unauthorized copying of this software is prohibited.
+4. Reverse engineering, decompilation, modification, or attempts to bypass licensing controls are not permitted except where required by law.
+5. After the trial expires, continued use requires a valid activation key issued by an authorized Technocops administrator.
+6. Activation keys are machine-bound and may not be transferred without written approval from Technocops Technology & Innovation.
+7. The operator remains responsible for all input documents, converted output, validation review, and publishing decisions.
+8. This software is provided "as is" without any guarantee of uninterrupted operation or fitness for a specific publishing workflow.
+9. Technocops Technology & Innovation is not liable for indirect, incidental, or consequential damages arising from use of the software.
+10. By installing or using this software, the user confirms acceptance of these terms.
