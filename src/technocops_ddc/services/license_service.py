@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -14,6 +15,7 @@ from technocops_ddc import APP_NAME
 from technocops_ddc.config import (
     ACTIVATION_KEY_SECRET,
     LICENSE_STATE_PATH,
+    PRODUCT_DIR_NAME,
     REGISTRY_LICENSE_PATH,
     SECURE_STORAGE_DIR,
     TRIAL_PERIOD_DAYS,
@@ -63,10 +65,10 @@ class LicenseService:
         entropy = f"{APP_NAME}|{ACTIVATION_KEY_SECRET}".encode("utf-8")
         self.protected_storage = WindowsProtectedStorage(entropy)
         self.registry_store = WindowsRegistryStore(REGISTRY_LICENSE_PATH)
+        self.storage_dir = self._resolve_storage_dir()
+        self.license_state_path = self.storage_dir / LICENSE_STATE_PATH.name
 
     def load_state(self) -> LicenseState:
-        SECURE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-
         file_error: Exception | None = None
         registry_error: Exception | None = None
 
@@ -100,9 +102,8 @@ class LicenseService:
         return state
 
     def save_state(self, state: LicenseState) -> None:
-        SECURE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
         payload = self.protected_storage.protect_text(self._serialize_state(state))
-        LICENSE_STATE_PATH.write_text(payload, encoding="utf-8")
+        self.license_state_path.write_text(payload, encoding="utf-8")
         self.registry_store.write_text(REGISTRY_VALUE_NAME, payload)
 
     def refresh_state(self, state: LicenseState) -> LicenseState:
@@ -236,9 +237,9 @@ class LicenseService:
         self.registry_store.write_text(REGISTRY_VALUE_NAME, payload)
 
     def _load_state_from_file(self) -> LicenseState | None:
-        if not LICENSE_STATE_PATH.exists():
+        if not self.license_state_path.exists():
             return None
-        protected_text = LICENSE_STATE_PATH.read_text(encoding="utf-8").strip()
+        protected_text = self.license_state_path.read_text(encoding="utf-8").strip()
         if not protected_text:
             return None
         return self._deserialize_state(self.protected_storage.unprotect_text(protected_text))
@@ -248,6 +249,21 @@ class LicenseService:
         if not protected_text:
             return None
         return self._deserialize_state(self.protected_storage.unprotect_text(protected_text))
+
+    @staticmethod
+    def _resolve_storage_dir() -> Path:
+        candidates = [
+            SECURE_STORAGE_DIR,
+            Path(tempfile.gettempdir()) / PRODUCT_DIR_NAME / "secure",
+        ]
+        for candidate in candidates:
+            try:
+                candidate.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                continue
+            if candidate.is_dir():
+                return candidate
+        raise OSError("Unable to initialize secure license storage.")
 
     def _serialize_state(self, state: LicenseState) -> str:
         payload = json.dumps(asdict(state), sort_keys=True, separators=(",", ":"))

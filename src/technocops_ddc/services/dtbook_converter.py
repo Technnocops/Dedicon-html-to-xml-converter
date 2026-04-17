@@ -64,6 +64,10 @@ HEADING_MARKER_PATTERN = re.compile(r"^\s*<h(?P<level>[1-6])>\s*(?P<text>.*?)\s*
 HEADING_TOKEN_PATTERN = re.compile(r"<h(?P<level>[1-6])>", re.IGNORECASE)
 SIDEBAR_HEADING_PATTERN = re.compile(r"^\s*<(?P<tag>hsd\d*|sd)>\s*(?P<text>.*?)\s*$", re.IGNORECASE | re.DOTALL)
 MARKUP_TOKEN_PATTERN = re.compile(rf"</?(?:{BLOCK_MARKER_TAG_PATTERN}|figure|fig|h[1-6])\s*>", re.IGNORECASE)
+BRACKET_PAIRS = {"(": ")", "[": "]", "{": "}", "<": ">"}
+OPENING_BRACKETS = set(BRACKET_PAIRS)
+CLOSING_BRACKETS = set(BRACKET_PAIRS.values())
+REVERSE_BRACKET_PAIRS = {value: key for key, value in BRACKET_PAIRS.items()}
 
 
 @dataclass
@@ -1630,21 +1634,105 @@ class DTBookConverter:
 
     def _fix_misplaced_bracketed_inline_markup(self, element: etree._Element) -> None:
         for index, child in enumerate(list(element)):
-            if self._tag_name(child) not in {"strong", "em"} or not (child.text or "").startswith("]"):
+            if self._tag_name(child) not in {"strong", "em"}:
                 continue
 
-            if index == 0:
-                anchor_text = element.text or ""
-                if re.search(r"\[[^\]]+$", anchor_text):
-                    element.text = f"{anchor_text}]"
-                    child.text = (child.text or "")[1:]
-                continue
+            self._move_leading_opening_brackets_outside_inline(element, child, index)
+            self._move_leading_closing_brackets_outside_inline(element, child, index)
+            self._move_trailing_closing_brackets_outside_inline(child)
 
-            previous = element[index - 1]
-            anchor_tail = previous.tail or ""
-            if re.search(r"\[[^\]]+$", anchor_tail):
-                previous.tail = f"{anchor_tail}]"
-                child.text = (child.text or "")[1:]
+    def _move_leading_opening_brackets_outside_inline(
+        self,
+        parent: etree._Element,
+        child: etree._Element,
+        child_index: int,
+    ) -> None:
+        moved = self._extract_leading_brackets_from_inline(
+            child,
+            lambda character, _moved_text: character in OPENING_BRACKETS,
+        )
+        if not moved:
+            return
+        self._append_text_before_child(parent, child_index, moved)
+
+    def _move_leading_closing_brackets_outside_inline(
+        self,
+        parent: etree._Element,
+        child: etree._Element,
+        child_index: int,
+    ) -> None:
+        anchor_text = self._text_before_child(parent, child_index)
+        moved = self._extract_leading_brackets_from_inline(
+            child,
+            lambda character, moved_text: (
+                character in CLOSING_BRACKETS
+                and (anchor_text + moved_text).count(REVERSE_BRACKET_PAIRS[character]) > (anchor_text + moved_text).count(character)
+            ),
+        )
+        if not moved:
+            return
+        self._append_text_before_child(parent, child_index, moved)
+
+    def _move_trailing_closing_brackets_outside_inline(self, child: etree._Element) -> None:
+        moved = self._pop_trailing_brackets_from_inline(child)
+        if moved:
+            child.tail = f"{moved}{child.tail or ''}"
+
+    @staticmethod
+    def _text_before_child(parent: etree._Element, child_index: int) -> str:
+        if child_index == 0:
+            return parent.text or ""
+        return parent[child_index - 1].tail or ""
+
+    @staticmethod
+    def _append_text_before_child(parent: etree._Element, child_index: int, text: str) -> None:
+        if not text:
+            return
+        if child_index == 0:
+            parent.text = f"{parent.text or ''}{text}"
+            return
+        previous = parent[child_index - 1]
+        previous.tail = f"{previous.tail or ''}{text}"
+
+    def _extract_leading_brackets_from_inline(
+        self,
+        element: etree._Element,
+        predicate,
+        moved_text: str = "",
+    ) -> str:
+        text = element.text or ""
+        if text:
+            extracted = ""
+            while text and predicate(text[0], moved_text + extracted):
+                extracted += text[0]
+                text = text[1:]
+            if extracted:
+                element.text = text
+            return extracted
+
+        if len(element):
+            return self._extract_leading_brackets_from_inline(element[0], predicate, moved_text)
+        return ""
+
+    def _pop_trailing_brackets_from_inline(self, element: etree._Element) -> str:
+        moved = ""
+        if len(element):
+            moved = self._pop_trailing_brackets_from_inline(element[-1])
+            if moved:
+                return moved
+            tail = element[-1].tail or ""
+            trimmed_tail = tail.rstrip("".join(CLOSING_BRACKETS))
+            moved = tail[len(trimmed_tail):]
+            if moved:
+                element[-1].tail = trimmed_tail
+                return moved
+
+        text = element.text or ""
+        trimmed_text = text.rstrip("".join(CLOSING_BRACKETS))
+        moved = text[len(trimmed_text):]
+        if moved:
+            element.text = trimmed_text
+        return moved
 
     def _normalize_element_text_nodes(self, element: etree._Element) -> None:
         element.text = self._normalize_text_fragment(element.text)
@@ -1671,9 +1759,9 @@ class DTBookConverter:
             element.tail = self._merge_tail_text(" ", element.tail)
 
     def _ensure_inline_tail_spacing(self, element: etree._Element) -> None:
-        if self._tag_name(element) not in {"strong", "linenum"} or not element.tail:
+        if self._tag_name(element) not in {"strong", "em", "linenum"} or not element.tail:
             return
-        if element.tail[0].isspace() or element.tail[0] in ",.;:!?)]}":
+        if element.tail[0].isspace() or element.tail[0] in ",.;:!?)]}>":
             return
         element.tail = f" {element.tail}"
 
@@ -1702,7 +1790,7 @@ class DTBookConverter:
             return None
 
         normalized = text.replace("\xa0", " ")
-        normalized = re.sub(r"([)\]}])(?=[A-Za-z0-9])", r"\1 ", normalized)
+        normalized = re.sub(r"([)\]}>])(?=[A-Za-z0-9])", r"\1 ", normalized)
         normalized = re.sub(r"\s{2,}", " ", normalized)
         return normalized
 

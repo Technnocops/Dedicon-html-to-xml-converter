@@ -440,7 +440,7 @@ class MetadataSummaryCard(QWidget):
         super().__init__(parent)
         self.value_labels: dict[str, QLabel] = {}
 
-        hint_label = QLabel("Main metadata yahan visible rahegi. Publisher, dates, producer, authors aur baaki fields ke liye `Edit Metadata` use karein.")
+        hint_label = QLabel("Primary metadata is shown here in English. Use `Edit Metadata` to review or update all remaining fields.")
         hint_label.setProperty("role", "subtitle")
         hint_label.setWordWrap(True)
 
@@ -487,7 +487,7 @@ class MetadataDialog(QDialog):
         self.resize(980, 700)
         self.setMinimumSize(860, 620)
 
-        intro = QLabel("Review or update every metadata field here. Values detected from the input files will already be filled when available.")
+        intro = QLabel("Review or update every metadata field here. Detected values from the input files will be filled automatically when available.")
         intro.setProperty("role", "subtitle")
         intro.setWordWrap(True)
 

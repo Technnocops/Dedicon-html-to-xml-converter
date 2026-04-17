@@ -12,9 +12,18 @@ if (-not (Test-Path $python)) {
     $python = "python"
 }
 
-$portableDir = Join-Path $root "release\portable"
-$buildDir = Join-Path $root "release\build-temp"
+$versionFile = Join-Path $root "src\technocops_ddc\__init__.py"
+$versionMatch = Select-String -Path $versionFile -Pattern 'APP_VERSION = "([^"]+)"' | Select-Object -First 1
+if (-not $versionMatch) {
+    throw "Unable to detect application version from $versionFile"
+}
+
+$appVersion = $versionMatch.Matches[0].Groups[1].Value
+$versionSuffix = $appVersion.Replace('.', '_')
+$portableDir = Join-Path $root "release\portable_v$versionSuffix"
+$buildDir = Join-Path $root "release\build-temp-v$versionSuffix"
 $installerDir = Join-Path $root "release\installer"
+$portableZip = Join-Path $installerDir ("Technocops_DDC_Converter_HTML_to_XML_Pro_Portable_v{0}.zip" -f $appVersion)
 $installerScript = Join-Path $root "installer\Technocops_DDC_Converter_HTML_to_XML_Pro.iss"
 $isccCandidates = @(
     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
@@ -41,9 +50,14 @@ if (-not $SkipSmokeChecks) {
     & $python "tools\run_release_checks.py" "--phase" "postbuild" "--dist-root" $bundleDir
 }
 
+if (Test-Path $portableZip) {
+    Remove-Item -LiteralPath $portableZip -Force
+}
+Compress-Archive -Path (Join-Path $portableDir "Technocops_DDC_Converter_HTML_to_XML_Pro") -DestinationPath $portableZip
+
 if (-not $SkipInstaller) {
     if ($iscc) {
-        & $iscc $installerScript
+        & $iscc "/DMyPortableRoot=..\release\portable_v$versionSuffix" $installerScript
     }
     else {
         Write-Warning "Inno Setup compiler (ISCC.exe) was not found. Installer script is ready but setup EXE was not built."
@@ -57,6 +71,7 @@ if (Test-Path $buildDir) {
 Write-Host ""
 Write-Host "Release build completed."
 Write-Host "Portable bundle: $bundleDir"
+Write-Host "Portable ZIP: $portableZip"
 if ($iscc) {
     Write-Host "Installer output: $installerDir"
 }

@@ -81,14 +81,17 @@ class WindowsRegistryStore:
         self._registry_path = registry_path
 
     def write_text(self, name: str, value: str) -> None:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, self._registry_path) as key:
-            winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+        try:
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, self._registry_path) as key:
+                winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+        except OSError:
+            return
 
     def read_text(self, name: str) -> str | None:
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self._registry_path) as key:
                 value, _value_type = winreg.QueryValueEx(key, name)
-        except FileNotFoundError:
+        except OSError:
             return None
         return value or None
 

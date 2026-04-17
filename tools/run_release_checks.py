@@ -163,6 +163,35 @@ def run_conversion_smoke_test() -> None:
         assert "&lt;h2&gt;" not in escaped_heading_result.xml_text and "&lt;/h2&gt;" not in escaped_heading_result.xml_text, "Heading output still contains escaped heading tags."
         assert '<list type="pl" class="existing-list ul-nobullets">' in escaped_heading_result.xml_text, "UL class appending did not preserve existing classes."
 
+        bracket_inline_html = temp_root / "bracket-inline.htm"
+        bracket_inline_html.write_text(
+            """
+            <html><body>
+              <p>[<em>a]</em></p>
+              <p><em>[b]</em></p>
+              <p>(<strong>c)</strong></p>
+              <p><strong>{d}</strong></p>
+              <p>&lt;<em>e&gt;</em></p>
+              <p><span style="font-style:italic;">&lt;[f]&gt;</span></p>
+              <p><span style="font-style:italic;"><span style="font-weight:bold;">{g}</span></span></p>
+            </body></html>
+            """,
+            encoding="utf-8",
+        )
+        bracket_inline_result = service.convert(
+            [InputDocument(path=bracket_inline_html, order=1, origin=str(temp_root))],
+            metadata,
+        )
+        assert "[<em>a</em>]" in bracket_inline_result.xml_text, "Closing square bracket should remain outside emphasis."
+        assert "[<em>b</em>]" in bracket_inline_result.xml_text, "Opening and closing square brackets should remain outside emphasis."
+        assert "(<strong>c</strong>)" in bracket_inline_result.xml_text, "Round brackets should remain outside strong formatting."
+        assert "{<strong>d</strong>}" in bracket_inline_result.xml_text, "Curly brackets should remain outside strong formatting."
+        assert "&lt;<em>e</em>&gt;" in bracket_inline_result.xml_text, "Angle brackets should remain outside emphasis."
+        assert "&lt;[<em>f</em>]&gt;" in bracket_inline_result.xml_text, "Nested angle and square brackets should wrap the emphasized content."
+        assert re.search(r"\{<em>\s*<strong>g</strong>\s*</em>\}", bracket_inline_result.xml_text), "Nested strong and emphasis should stay inside curly brackets."
+        assert "<em>[" not in bracket_inline_result.xml_text and "]</em>" not in bracket_inline_result.xml_text, "Bracket characters should stay outside emphasis tags."
+        assert "<strong>{" not in bracket_inline_result.xml_text and "}</strong>" not in bracket_inline_result.xml_text, "Bracket characters should stay outside strong tags."
+
         page_range_result = service.convert(documents, metadata, page_range=PageRangeSelection(start_page=1, end_page=1))
         assert 'page-1' in page_range_result.xml_text, "Requested page range was not preserved."
         assert 'page-2' not in page_range_result.xml_text, "Content outside the requested page range leaked into the output."
