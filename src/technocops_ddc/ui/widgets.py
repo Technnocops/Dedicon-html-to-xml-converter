@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from technocops_ddc.models import AuthorEntry, DTBookMetadata, PageRangeSelection
+from technocops_ddc.models import AuthorEntry, DTBookMetadata, FIXED_PUBLISHER, PageRangeSelection
 
 
 class InputListWidget(QListWidget):
@@ -71,7 +71,7 @@ class MetadataForm(QWidget):
         self.auto_language_code = ""
         self.uid_input = QLineEdit()
         self.title_input = QLineEdit()
-        self.publisher_input = QLineEdit()
+        self.publisher_input = QLineEdit(FIXED_PUBLISHER)
         self.language_input = QLineEdit("en")
         self.identifier_input = QLineEdit()
         self.source_input = QLineEdit()
@@ -91,6 +91,7 @@ class MetadataForm(QWidget):
         self.language_input.setPlaceholderText("Auto-detected language code")
         self._configure_input_sizes()
         self._connect_field_signals()
+        self.publisher_input.setReadOnly(True)
 
         today = QDate.currentDate()
         self.completion_date_input = QDateEdit(today)
@@ -206,8 +207,8 @@ class MetadataForm(QWidget):
             self.title_input.setText(title)
         if source_isbn and not self.source_input.text().strip():
             self.source_input.setText(source_isbn)
-        if publisher and not self.publisher_input.text().strip():
-            self.publisher_input.setText(publisher)
+        if not self.publisher_input.text().strip():
+            self.publisher_input.setText(FIXED_PUBLISHER)
         if source_publisher and not self.source_publisher_input.text().strip():
             self.source_publisher_input.setText(source_publisher)
 

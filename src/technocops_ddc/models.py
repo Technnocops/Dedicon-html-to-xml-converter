@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from .config import DEFAULT_DOC_TYPE, DEFAULT_LANGUAGE
 
+FIXED_PUBLISHER = "Dedicon"
+
 
 class Severity(str, Enum):
     INFO = "info"
@@ -141,7 +143,7 @@ class DTBookMetadata:
             creator_surname="",
             creator_first_name="",
             completion_date=today,
-            publisher="",
+            publisher=FIXED_PUBLISHER,
             language=DEFAULT_LANGUAGE,
             identifier="",
             source_isbn="",
@@ -180,7 +182,7 @@ class DTBookMetadata:
             ("dtb:uid", self.uid),
             ("dc:Title", self.title),
             ("dc:Date", self.completion_date),
-            ("dc:Publisher", self.publisher),
+            ("dc:Publisher", FIXED_PUBLISHER),
             ("dc:Language", self.language),
             ("dc:Identifier", self.identifier),
             ("dc:Format", "ANSI/NISO Z39.86-2005"),

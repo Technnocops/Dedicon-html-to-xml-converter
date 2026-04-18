@@ -1,5 +1,5 @@
 #define MyAppName "Technocops DDC Converter (HTML to XML) Pro"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.5.0"
 #define MyAppPublisher "Technocops Technology & Innovation"
 #define MyAppExeName "Technocops_DDC_Converter_HTML_to_XML_Pro.exe"
 #define MyAppDirName "Technocops_DDC_Converter_HTML_to_XML_Pro"
@@ -17,14 +17,14 @@ DefaultGroupName={#MyAppName}
 LicenseFile=license_terms.txt
 SetupIconFile=..\assets\branding\technocops_app_icon.ico
 OutputDir=..\release\installer
-OutputBaseFilename=Technocops_DDC_Converter_HTML_to_XML_Pro_Setup_v1.0.3
+OutputBaseFilename=Technocops_DDC_Converter_HTML_to_XML_Pro_Setup_v1.5.0
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 UninstallDisplayIcon={app}\{#MyAppExeName}
-VersionInfoVersion=1.0.3.0
+VersionInfoVersion=1.5.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Installer
 SetupLogging=yes

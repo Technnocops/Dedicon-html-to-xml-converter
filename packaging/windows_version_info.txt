@@ -17,11 +17,11 @@ VSVersionInfo(
           [
             StringStruct("CompanyName", "Technocops Technology & Innovation"),
             StringStruct("FileDescription", "Technocops DDC Converter (HTML to XML) Pro"),
-        StringStruct("FileVersion", "1.0.3"),
+        StringStruct("FileVersion", "1.5.0"),
             StringStruct("InternalName", "Technocops_DDC_Converter_HTML_to_XML_Pro"),
             StringStruct("OriginalFilename", "Technocops_DDC_Converter_HTML_to_XML_Pro.exe"),
             StringStruct("ProductName", "Technocops DDC Converter (HTML to XML) Pro"),
-        StringStruct("ProductVersion", "1.0.3")
+        StringStruct("ProductVersion", "1.5.0")
           ]
         )
       ]

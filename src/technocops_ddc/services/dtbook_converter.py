@@ -24,6 +24,17 @@ SCHEMATRON_NAMESPACE = "http://purl.oclc.org/dsdl/schematron"
 BLOCK_MARKER_TAG_PATTERN = r"(?:page|pm|hsd\d*|sd|ol|ul|fig)"
 INLINE_OUTPUT_TAGS = {"strong", "em", "linenum"}
 INLINE_FORMATTING_TAGS = INLINE_OUTPUT_TAGS | {"b", "i", "span"}
+FIXED_LINE_BREAK_REPLACEMENTS = (
+    ("<p>\n<strong>", "<p><strong>"),
+    ("<li>\n<strong>", "<li><strong>"),
+    ("</strong>\n<em>", "</strong><em>"),
+    ("<li>\n<em>", "<li><em>"),
+    ("<line>\n<strong>", "<line><strong>"),
+    ("<line>\n<linenum>", "<line><linenum>"),
+    ("</linenum>\n<strong>", "</linenum><strong>"),
+    ("<td>\n<strong>", "<td><strong>"),
+    ("</strong>\n</td>", "</strong></td>"),
+)
 PARAGRAPH_MERGE_PREFIXES = {
     "a",
     "an",
@@ -260,12 +271,20 @@ class DTBookConverter:
     def _build_xml_text(root: etree._Element) -> str:
         xml_body = etree.tostring(root, pretty_print=False, encoding="unicode")
         xml_body = re.sub(r">\s*<", ">\n<", xml_body).strip() + "\n"
+        xml_body = DTBookConverter._normalize_xml_line_breaks(xml_body)
         return (
             '<?xml version="1.0" encoding="utf-8"?>\n'
             f'<?xml-model href="{SCHEMATRON_HREF}" type="application/xml" schematypens="{SCHEMATRON_NAMESPACE}"?>\n'
             '<!DOCTYPE dtbook PUBLIC "-//NISO//DTD dtbook 2005-3//EN" "http://www.daisy.org/z3986/2005/dtbook-2005-3.dtd">\n'
             + xml_body
         )
+
+    @staticmethod
+    def _normalize_xml_line_breaks(xml_body: str) -> str:
+        normalized = re.sub(r"</strong>\s*<strong>", " ", xml_body)
+        for source, target in FIXED_LINE_BREAK_REPLACEMENTS:
+            normalized = normalized.replace(source, target)
+        return normalized
 
     @staticmethod
     def _read_html(path: Path) -> str:
@@ -1304,6 +1323,14 @@ class DTBookConverter:
             self._append_pagenum(target, "".join(source_node.itertext()).strip(), context)
             return
 
+        font0_replacement = self._extract_font0_span_replacement(source_node)
+        if font0_replacement is not None:
+            if font0_replacement == " ":
+                self._append_text_to_element(target, " ")
+            else:
+                self._append_text_fragments(target, font0_replacement, context, pm_mode=pm_mode)
+            return
+
         if tag in {"strong", "b"} or self._is_bold_span(source_node):
             special_marker = self._extract_special_marker(source_node)
             if special_marker:
@@ -1483,6 +1510,23 @@ class DTBookConverter:
     def _extract_special_marker(self, node: etree._Element) -> str:
         candidate = MARKUP_TOKEN_PATTERN.sub("", "".join(node.itertext())).strip()
         return candidate if candidate in SPECIAL_MARKER_VALUES else ""
+
+    def _extract_font0_span_replacement(self, node: etree._Element) -> str | None:
+        tag = node.tag.lower() if isinstance(node.tag, str) else ""
+        if tag != "span":
+            return None
+
+        classes = {part.strip().lower() for part in (node.get("class") or "").split() if part.strip()}
+        if "font0" not in classes:
+            return None
+
+        raw_text = "".join(node.itertext())
+        stripped_text = MARKUP_TOKEN_PATTERN.sub("", raw_text).strip()
+        if stripped_text in SPECIAL_MARKER_VALUES:
+            return f"({stripped_text})"
+        if raw_text and not raw_text.strip():
+            return " "
+        return None
 
     @staticmethod
     def _is_caption_candidate(node: etree._Element) -> bool:
