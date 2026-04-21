@@ -30,7 +30,6 @@ VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Installer
 SetupLogging=yes
 CloseApplications=yes
-ForceCloseApplications=yes
 RestartApplications=no
 
 [Tasks]

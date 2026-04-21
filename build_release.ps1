@@ -37,17 +37,32 @@ New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
 New-Item -ItemType Directory -Force -Path $installerDir | Out-Null
 
 & $python "tools\generate_brand_assets.py"
+if ($LASTEXITCODE -ne 0) {
+    throw "Brand asset generation failed with exit code $LASTEXITCODE"
+}
 & $python "tools\generate_security_manifest.py"
+if ($LASTEXITCODE -ne 0) {
+    throw "Security manifest generation failed with exit code $LASTEXITCODE"
+}
 
 if (-not $SkipSmokeChecks) {
     & $python "tools\run_release_checks.py" "--phase" "prebuild"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Prebuild release checks failed with exit code $LASTEXITCODE"
+    }
 }
 
 & $python -m PyInstaller --noconfirm --clean --distpath $portableDir --workpath $buildDir "technocops_ddc.spec"
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller build failed with exit code $LASTEXITCODE"
+}
 
 $bundleDir = Join-Path $portableDir "Technocops_DDC_Converter_HTML_to_XML_Pro"
 if (-not $SkipSmokeChecks) {
     & $python "tools\run_release_checks.py" "--phase" "postbuild" "--dist-root" $bundleDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "Postbuild release checks failed with exit code $LASTEXITCODE"
+    }
 }
 
 if (Test-Path $portableZip) {
@@ -58,6 +73,9 @@ Compress-Archive -Path (Join-Path $portableDir "Technocops_DDC_Converter_HTML_to
 if (-not $SkipInstaller) {
     if ($iscc) {
         & $iscc "/DMyPortableRoot=..\release\portable_v$versionSuffix" $installerScript
+        if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
+        }
     }
     else {
         Write-Warning "Inno Setup compiler (ISCC.exe) was not found. Installer script is ready but setup EXE was not built."
