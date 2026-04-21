@@ -4,12 +4,19 @@ from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
 from pathlib import Path
+import re
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from .config import DEFAULT_DOC_TYPE, DEFAULT_LANGUAGE
 
 FIXED_PUBLISHER = "Dedicon"
+DOCUMENT_TYPE_EDUCATIONAL = "sv"
+DOCUMENT_TYPE_READING = "ro"
+DOCUMENT_TYPE_OPTIONS = (
+    ("Educational Books", DOCUMENT_TYPE_EDUCATIONAL),
+    ("Reading Books", DOCUMENT_TYPE_READING),
+)
 
 
 class Severity(str, Enum):
@@ -65,25 +72,25 @@ class InputBatch:
 @dataclass(slots=True)
 class PageRangeSelection:
     start_page: int
-    end_page: int
+    end_page: int | None = None
 
     def validate(self) -> list[str]:
         issues: list[str] = []
         if self.start_page <= 0:
-            issues.append("Start Page must be greater than 0.")
-        if self.end_page <= 0:
-            issues.append("End Page must be greater than 0.")
-        if self.start_page > self.end_page:
-            issues.append("Start Page cannot be greater than End Page.")
+            issues.append("Start Page Number must be greater than 0.")
         return issues
 
     @property
     def label(self) -> str:
+        if self.end_page is None:
+            return f"Generated pages start at {self.start_page} and continue automatically."
         if self.start_page == self.end_page:
-            return f"Page {self.start_page}"
-        return f"Pages {self.start_page}-{self.end_page}"
+            return f"Generated page starts at {self.start_page}"
+        return f"Generated pages start at {self.start_page} and continue to {self.end_page}"
 
     def includes(self, page_number: int) -> bool:
+        if self.end_page is None:
+            return page_number >= self.start_page
         return self.start_page <= page_number <= self.end_page
 
 
@@ -186,7 +193,7 @@ class DTBookMetadata:
             ("dc:Language", self.language),
             ("dc:Identifier", self.identifier),
             ("dc:Format", "ANSI/NISO Z39.86-2005"),
-            ("dc:Source", self.source_isbn),
+            ("dc:Source", self.normalized_source_isbn),
             ("dtb:producedDate", self.produced_date),
             ("prod:docType", self.doc_type),
             ("prod:rawVersion", self.raw_version),
@@ -200,6 +207,10 @@ class DTBookMetadata:
         if self.doc_type == "sv":
             meta_pairs.insert(-3, ("prod:colophon", "1"))
         return meta_pairs
+
+    @property
+    def normalized_source_isbn(self) -> str:
+        return re.sub(r"[\s-]+", "", self.source_isbn or "")
 
 
 @dataclass(slots=True)

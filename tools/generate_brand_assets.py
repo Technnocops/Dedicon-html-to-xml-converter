@@ -137,6 +137,10 @@ def draw_splash_image(width: int = 980, height: int = 540) -> QImage:
 
 
 def save_splash_asset() -> None:
+    if SPLASH_OUTPUT.exists():
+        existing = QImage(str(SPLASH_OUTPUT))
+        if not existing.isNull():
+            return
     draw_splash_image().save(str(SPLASH_OUTPUT), "PNG")
 
 

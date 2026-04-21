@@ -22,6 +22,7 @@ from technocops_ddc.services.license_service import LicenseService, LicenseState
 from technocops_ddc.services.security_service import SecurityService
 from technocops_ddc.services.update_service import UpdateService
 from technocops_ddc.ui.main_window import MainWindow
+from technocops_ddc.ui.widgets import MetadataForm
 
 
 def main() -> int:
@@ -51,6 +52,36 @@ def main() -> int:
 
 def run_ui_smoke_test() -> None:
     window = MainWindow()
+    metadata_form = MetadataForm()
+    assert metadata_form.doc_type_input.itemText(0) == "Select document type", "Document type placeholder is missing."
+    assert metadata_form.doc_type_input.itemText(1) == "Educational Books", "Educational Books option is missing."
+    assert metadata_form.doc_type_input.itemText(2) == "Reading Books", "Reading Books option is missing."
+    assert metadata_form.doc_type_input.currentData() == "", "Document type should not be preselected."
+    assert window.page_range_widget.start_spin.value() == 1, "Generated page numbering should start at 1 by default."
+    assert metadata_form.uid_input.text() == "", "UID should no longer be pre-populated."
+    assert metadata_form.identifier_input.text() == "", "Identifier should no longer be pre-populated."
+    assert metadata_form.title_input.text() == "", "Title should no longer be pre-populated."
+    assert metadata_form.language_input.text() == "", "Language should no longer be pre-populated before detection."
+    assert metadata_form.publisher_input.text() == "Dedicon", "Publisher should stay fixed as Dedicon in the editor."
+    assert metadata_form.producer_input.text() == "", "Producer should no longer be pre-populated."
+    assert metadata_form.producer_input.placeholderText() == "Continuum Content Solutions", "Producer placeholder should guide the user."
+    assert metadata_form.completion_date_input.calendarPopup(), "Completion date should use a calendar popup."
+    assert metadata_form.produced_date_input.calendarPopup(), "Produced date should use a calendar popup."
+    metadata_form.uid_input.setText("374388")
+    metadata_form.identifier_input.setText("374388")
+    metadata_form.generate_ids()
+    assert metadata_form.uid_input.text() == "374388", "Generate IDs should not replace an existing UID with a random value."
+    assert metadata_form.identifier_input.text() == "374388", "Generate IDs should not replace an existing Identifier with a random value."
+    assert window.stop_on_critical_checkbox.text(), "Main window checkbox should be present."
+    assert not window.id_regeneration_widget.page_ids_checkbox.isEnabled(), "ID regeneration should be disabled before XML is available."
+    assert not window.id_regeneration_widget.apply_button.isEnabled(), "Apply ID finalizer should be disabled before XML is available."
+    window.metadata_form.uid_input.setText("374388")
+    window.metadata_form.title_input.setText("Temp title")
+    window.clear_documents()
+    assert window.metadata_form.uid_input.text() == "", "Clearing imported files should also clear metadata."
+    assert window.metadata_form.title_input.text() == "", "Metadata reset should clear the previous document title."
+    assert window.metadata_form.publisher_input.text() == "Dedicon", "Publisher should remain fixed after metadata reset."
+    assert window.metadata_dialog.clean_button.text() == "Clean Metadata", "Metadata dialog should expose a clean button."
     window.close()
     print("[release-check] UI smoke test passed")
 
@@ -75,6 +106,8 @@ def run_conversion_smoke_test() -> None:
                 <p><page>1</page></p>
                 <h1><strong>Chapter One</strong></h1>
                 <p><span style="font-weight:bold;">Bold text</span> and <span style="font-style:italic;">Italic text</span>.</p>
+                <p>Het <span class="font20" style="text-decoration:underline;">HANDBOEK</span> helpt.</p>
+                <p><strong>Only Bold</strong></p>
                 <p>(R)Ik weet wat...</p>
                 <p>en niet-feitelijke zaken.</p>
                 <p><strong>► </strong>Marker</p>
@@ -85,7 +118,7 @@ def run_conversion_smoke_test() -> None:
                 <pm><p>[1]Verse line</p></pm>
                 <hsd><p>Sidebar note</p></hsd>
                 <p><img src="sample.jpg"/></p>
-                <table border="1"><tr><td><p>Cell text</p></td></tr></table>
+                <table border="1"><tr><td colspan="2" rowspan="3"><p>Cell text</p></td></tr></table>
                 <p><em>Joined</em><em>Emphasis</em></p>
                 <p><page>2</page>Second page text.</p>
               </body>
@@ -103,7 +136,7 @@ def run_conversion_smoke_test() -> None:
             publisher="Technocops Technology & Innovation",
             language="en",
             identifier="374388",
-            source_isbn="978 12 3456 7890 1",
+            source_isbn="978 12-3456 7890 1",
             produced_date="2026-04-17",
             source_publisher="Technocops Technology & Innovation",
             producer="Technocops Technology & Innovation",
@@ -123,7 +156,10 @@ def run_conversion_smoke_test() -> None:
         assert re.search(r"<em>\s*Italic text\s*</em>", xml_text), "Italic conversion missing."
         assert "<h1>Chapter One</h1>" in xml_text, "Heading cleanup failed."
         assert xml_root.xpath("count(.//*[local-name()='h1']/*[local-name()='strong'])") == 0.0, "Heading should not contain nested strong tags."
-        assert "(R) Ik weet wat... en niet-feitelijke zaken." in xml_text, "Broken paragraph merge or bracket spacing failed."
+        assert "<strong><em>HANDBOEK</em></strong>" in xml_text, "Underlined text should convert to strong+em."
+        assert "<p><strong>Only Bold</strong></p>" in xml_text, "Strong paragraph closing tag formatting failed."
+        assert "<p>(R) Ik weet wat...</p>" in xml_text, "First paragraph should remain independent and preserve bracket spacing."
+        assert "<p>en niet-feitelijke zaken.</p>" in xml_text, "Second paragraph should remain independent."
         assert re.search(r"<strong>.+?</strong>\s*Marker", xml_text, re.DOTALL), "Strong trailing-space cleanup failed."
         assert "<linegroup>" in xml_text, "PM block conversion missing."
         assert re.search(r"<linenum>\(1\)</linenum>\s*Verse line", xml_text), "Line number spacing cleanup failed."
@@ -133,11 +169,15 @@ def run_conversion_smoke_test() -> None:
         assert xml_root.xpath("count(.//*[local-name()='pagenum' and text()='1'])") >= 1.0, "Page number conversion missing."
         assert re.search(r"<td>\s*Cell text\s*</td>", xml_text), "Table cell paragraph cleanup failed."
         assert "<td><p>" not in xml_text, "Paragraph tags should not remain inside table cells."
-        assert re.search(r"<li>\s*<strong>d</strong>\s*Leg in je eigen dichtvorm uit\.\s*</li>", xml_text), "Broken list item merge failed."
+        assert re.search(r"<li>\s*<strong>d</strong>\s*Leg in je eigen\s*</li>", xml_text), "First list item should remain independent."
+        assert re.search(r"<li>\s*dichtvorm uit\.\s*</li>", xml_text), "Second list item should remain independent."
         assert re.search(r"<em>\s*Joined Emphasis\s*</em>", xml_text), "Adjacent emphasis cleanup failed."
+        assert '<meta name="dc:Publisher" content="Dedicon"/>' in xml_text, "Publisher should always be fixed to Dedicon."
+        assert '<meta name="dc:Source" content="97812345678901"/>' in xml_text, "ISBN should be saved without spaces and dashes."
         assert " </strong>" not in xml_text, "Space before strong closing tag should be removed."
         assert "\t" not in xml_text, "XML output should not contain tab indentation."
         assert not re.search(r"(?m)^[ ]+<", xml_text), "XML output should be left-aligned without leading spaces."
+        assert 'colspan=' not in xml_text and 'rowspan=' not in xml_text, "Table span attributes should be removed."
 
         assert saved_output.xml_path.exists(), "Converted XML file was not written."
         assert saved_output.json_report_path.exists(), "JSON report was not written."
@@ -192,9 +232,10 @@ def run_conversion_smoke_test() -> None:
         assert "<em>[" not in bracket_inline_result.xml_text and "]</em>" not in bracket_inline_result.xml_text, "Bracket characters should stay outside emphasis tags."
         assert "<strong>{" not in bracket_inline_result.xml_text and "}</strong>" not in bracket_inline_result.xml_text, "Bracket characters should stay outside strong tags."
 
-        page_range_result = service.convert(documents, metadata, page_range=PageRangeSelection(start_page=1, end_page=1))
-        assert 'page-1' in page_range_result.xml_text, "Requested page range was not preserved."
-        assert 'page-2' not in page_range_result.xml_text, "Content outside the requested page range leaked into the output."
+        page_range_result = service.convert(documents, metadata, page_range=PageRangeSelection(start_page=1001))
+        assert 'page-1001' in page_range_result.xml_text and 'page-1002' in page_range_result.xml_text, "Generated pages should start from the requested number and continue automatically."
+        assert 'page-1"' not in page_range_result.xml_text and 'page-2"' not in page_range_result.xml_text, "Original source page numbers should not be reused when a generated start page is selected."
+        assert "Chapter One" in page_range_result.xml_text and "Second page text." in page_range_result.xml_text, "Generated page numbering must not skip converted content."
 
         blank_marker_html = temp_root / "blank-pages.htm"
         blank_marker_html.write_text(
@@ -211,10 +252,103 @@ def run_conversion_smoke_test() -> None:
             encoding="utf-8",
         )
         blank_documents = [InputDocument(path=blank_marker_html, order=1, origin=str(temp_root))]
-        ranged_blank_result = service.convert(blank_documents, metadata, page_range=PageRangeSelection(start_page=2, end_page=3))
-        assert "page-1" not in ranged_blank_result.xml_text, "Blank page markers should start exactly from the requested range."
-        assert "page-2" in ranged_blank_result.xml_text and "page-3" in ranged_blank_result.xml_text, "Blank page markers were not mapped to the requested range."
-        assert "Alpha" not in ranged_blank_result.xml_text and "Beta" in ranged_blank_result.xml_text and "Gamma" in ranged_blank_result.xml_text, "Page range selection leaked incorrect content."
+        ranged_blank_result = service.convert(blank_documents, metadata, page_range=PageRangeSelection(start_page=1001))
+        assert "page-1001" in ranged_blank_result.xml_text and "page-1002" in ranged_blank_result.xml_text and "page-1003" in ranged_blank_result.xml_text, "Blank page markers should continue automatically from the requested generated start page."
+        assert "Alpha" in ranged_blank_result.xml_text and "Beta" in ranged_blank_result.xml_text and "Gamma" in ranged_blank_result.xml_text, "Generated page numbering must not drop content around blank markers."
+
+        marker_list_html = temp_root / "marker-lists.htm"
+        marker_list_html.write_text(
+            """
+            <html><body>
+              <p><span class="font7">&lt;ol&gt;</span></p>
+              <p><span class="font4" style="font-weight:bold;">a </span><span class="font20">Text A </span><span class="font1" style="font-weight:bold;">R</span></p>
+              <p><span class="font4" style="font-weight:bold;">b </span><span class="font20">Text B </span><span class="font1" style="font-weight:bold;">T1</span></p>
+              <p><span class="font4" style="font-weight:bold;">c </span><span class="font20">Text C </span><span class="font1" style="font-weight:bold;">I</span></p>
+              <p><span class="font7">&lt;/ol&gt;</span></p>
+              <p><span class="font7">&lt;ul&gt;</span></p>
+              <p><span class="font20">Item 1</span></p>
+              <p><span class="font20">Item 2</span></p>
+              <p><span class="font20">Item 3</span></p>
+              <p><span class="font7">&lt;/ul&gt;</span></p>
+            </body></html>
+            """,
+            encoding="utf-8",
+        )
+        marker_list_result = service.convert(
+            [InputDocument(path=marker_list_html, order=1, origin=str(temp_root))],
+            metadata,
+        )
+        assert '<list type="pl">' in marker_list_result.xml_text, "Ordered marker list should convert to DTBook list."
+        assert marker_list_result.xml_text.count("<li>") >= 6, "Marker-based list items should stay separated."
+        assert "<li><strong>a</strong> Text A (R)</li>" in marker_list_result.xml_text, "Ordered marker first item is wrong."
+        assert "<li><strong>b</strong> Text B (T1)</li>" in marker_list_result.xml_text, "Ordered marker second item is wrong."
+        assert "<li><strong>c</strong> Text C (I)</li>" in marker_list_result.xml_text, "Ordered marker third item is wrong."
+        assert '<list type="pl" class="ul-nobullets">' in marker_list_result.xml_text, "Unordered marker list should use ul-nobullets."
+        assert "<li>Item 1</li>" in marker_list_result.xml_text, "First unordered item is wrong."
+        assert "<li>Item 2</li>" in marker_list_result.xml_text, "Second unordered item is wrong."
+        assert "<li>Item 3</li>" in marker_list_result.xml_text, "Third unordered item is wrong."
+
+        figure_marker_html = temp_root / "figure-marker.htm"
+        figure_marker_html.write_text(
+            """
+            <html><body>
+              <p><span class="font1">&lt;fig&gt;</span></p>
+              <div><img src="sample.jpg" alt="" style="width:52pt;height:25pt;"/></div>
+              <div>
+                <p><span class="font13" style="font-style:italic;">Een luipaard of een lui paard? Sommige</span></p>
+                <p><span class="font13" style="font-style:italic;">Nederlandse samenstellingen zijn eigenlijk best gek.</span></p>
+                <p><span class="font1">&lt;/fig&gt;</span></p>
+              </div>
+            </body></html>
+            """,
+            encoding="utf-8",
+        )
+        figure_marker_result = service.convert(
+            [InputDocument(path=figure_marker_html, order=1, origin=str(temp_root))],
+            metadata,
+        )
+        assert (
+            "<imggroup>\n<img src=\"img/cover.jpg\" alt=\"afbeelding\"/>\n<caption>\n<p><em>Een luipaard of een lui paard? Sommige</em></p>\n<p><em>Nederlandse samenstellingen zijn eigenlijk best gek.</em></p>\n</caption>\n</imggroup>"
+            in figure_marker_result.xml_text
+        ), "Marker-based figure captions should stay inside the imggroup caption block."
+
+        id_finalizer_xml = service.finalize_xml_ids(
+            """<?xml version="1.0" encoding="utf-8"?>
+<?xml-model href="https://epubshowcase.dedicontest.nl/schematron/dtbook-ext.sch" type="application/xml" schematypens="http://purl.oclc.org/dsdl/schematron"?>
+<!DOCTYPE dtbook PUBLIC "-//NISO//DTD dtbook 2005-3//EN" "http://www.daisy.org/z3986/2005/dtbook-2005-3.dtd">
+<dtbook version="2005-3" xml:lang="en" xmlns="http://www.daisy.org/z3986/2005/dtbook/">
+<head><meta name="dtb:uid" content="374388"/></head>
+<book><frontmatter/><bodymatter>
+<level1 id="broken"><h1>One</h1>
+<level3 id="broken-two"><h3>Two</h3><pagenum id="broken-b" page="normal">1a</pagenum></level3>
+</level1>
+<level4 id="broken-three"><h4>Three</h4><pagenum id="broken-c" page="front">12</pagenum></level4>
+<pagenum id="broken-a" page="normal">i</pagenum>
+</bodymatter><rearmatter/></book>
+</dtbook>
+""",
+            regenerate_page_ids=True,
+            regenerate_level_ids=True,
+        )
+        assert 'id="l-1"' in id_finalizer_xml and 'id="l-2"' in id_finalizer_xml and 'id="l-3"' in id_finalizer_xml, "Level IDs should be sequential."
+        assert '<level1 id="l-1">' in id_finalizer_xml, "Top-level opening level tag should normalize to level1."
+        assert '<level2 id="l-2">' in id_finalizer_xml, "Nested opening level tag should normalize to level2."
+        assert '</level2>' in id_finalizer_xml and '</level1>' in id_finalizer_xml, "Closing level tags should be normalized to the regenerated nesting depth."
+        assert '<level1 id="l-3">' in id_finalizer_xml, "A new top-level section after closing should normalize back to level1."
+        assert 'id="page-i" page="front">i</pagenum>' in id_finalizer_xml, "Roman page should be marked as front."
+        assert 'id="page-1a" page="special">1a</pagenum>' in id_finalizer_xml, "Special page should be marked as special."
+        assert 'id="page-12" page="normal">12</pagenum>' in id_finalizer_xml, "Numeric page should be marked as normal."
+        assert service.extract_uid_from_xml(id_finalizer_xml) == "374388", "UID extraction should use dtb:uid."
+
+        preservation_input = '<pagenum custom="keep" id="old" page="normal">ii</pagenum>\n<p>Text stays same</p>\n<level1 class="chapter" id="x">'
+        preservation_output = service.finalize_xml_ids(
+            preservation_input,
+            regenerate_page_ids=True,
+            regenerate_level_ids=True,
+        )
+        assert '<pagenum custom="keep" id="page-ii" page="front">ii</pagenum>' in preservation_output, "Only page attributes should change in pagenum tags."
+        assert '<p>Text stays same</p>' in preservation_output, "Finalizer should not change content outside IDs."
+        assert '<level1 class="chapter" id="l-1">' in preservation_output, "Only level id should change in level tags."
         print("[release-check] conversion smoke test passed")
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)

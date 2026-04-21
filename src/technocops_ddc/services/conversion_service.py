@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
+
+from lxml import etree
 
 from technocops_ddc.models import ConversionIssue, ConversionResult, DTBookMetadata, InputDocument, PageRangeSelection, SavedOutput, Severity
 from technocops_ddc.services.dtbook_converter import DTBookConverter
@@ -10,6 +13,9 @@ from technocops_ddc.services.validation import DTBookValidator
 
 
 class ConversionService:
+    PAGENUM_TAG_PATTERN = re.compile(r"<pagenum\b(?P<attrs>[^>]*)>(?P<content>.*?)</pagenum>", re.IGNORECASE | re.DOTALL)
+    LEVEL_TOKEN_PATTERN = re.compile(r"<(?P<closing>/)?(?P<tag>level[1-6])\b(?P<attrs>[^>]*)>", re.IGNORECASE)
+
     def __init__(
         self,
         converter: DTBookConverter | None = None,
@@ -57,6 +63,39 @@ class ConversionService:
             image_output_dir=image_output_dir,
         )
 
+    def finalize_xml_ids(
+        self,
+        xml_text: str,
+        *,
+        regenerate_page_ids: bool = False,
+        regenerate_level_ids: bool = False,
+    ) -> str:
+        if not regenerate_page_ids and not regenerate_level_ids:
+            return xml_text
+
+        if regenerate_page_ids:
+            xml_text = self._regenerate_page_ids_in_text(xml_text)
+        if regenerate_level_ids:
+            xml_text = self._regenerate_level_ids_in_text(xml_text)
+
+        return xml_text
+
+    def extract_uid_from_xml(self, xml_text: str) -> str:
+        parser = etree.XMLParser(remove_blank_text=False, recover=True)
+        try:
+            root = etree.fromstring(xml_text.encode("utf-8"), parser=parser)
+        except etree.XMLSyntaxError:
+            name_first = re.search(r'<meta\b[^>]*\bname="dtb:uid"[^>]*\bcontent="([^"]*)"', xml_text)
+            if name_first:
+                return name_first.group(1).strip()
+            content_first = re.search(r'<meta\b[^>]*\bcontent="([^"]*)"[^>]*\bname="dtb:uid"', xml_text)
+            return content_first.group(1).strip() if content_first else ""
+
+        matches = root.xpath(".//*[local-name()='meta'][@name='dtb:uid']")
+        if not matches:
+            return ""
+        return (matches[0].get("content") or "").strip()
+
     @staticmethod
     def build_error_report(result: ConversionResult) -> dict:
         return {
@@ -86,6 +125,7 @@ class ConversionService:
             "UID": metadata.uid,
             "Title": metadata.title,
             "Author": "ok" if metadata.normalized_authors else "",
+            "Document Type": metadata.doc_type,
             "Publisher": metadata.publisher,
             "Language": metadata.language,
             "Identifier": metadata.identifier,
@@ -115,3 +155,68 @@ class ConversionService:
         if not issues:
             return "No validation issues were detected.\n"
         return "\n".join(issue.display_text for issue in issues) + "\n"
+
+    def _regenerate_page_ids_in_text(self, xml_text: str) -> str:
+        def replace_match(match: re.Match[str]) -> str:
+            attrs = match.group("attrs")
+            content = match.group("content")
+            visible_text = re.sub(r"<[^>]+>", "", content)
+            page_value = visible_text.strip()
+            page_type, page_id = self._page_attributes(page_value)
+            attrs = self._set_attribute(attrs, "id", page_id)
+            attrs = self._set_attribute(attrs, "page", page_type)
+            return f"<pagenum{attrs}>{content}</pagenum>"
+
+        return self.PAGENUM_TAG_PATTERN.sub(replace_match, xml_text)
+
+    def _regenerate_level_ids_in_text(self, xml_text: str) -> str:
+        sequence = 0
+        stack: list[str] = []
+        rebuilt_parts: list[str] = []
+        cursor = 0
+
+        for match in self.LEVEL_TOKEN_PATTERN.finditer(xml_text):
+            rebuilt_parts.append(xml_text[cursor:match.start()])
+            cursor = match.end()
+
+            is_closing = bool(match.group("closing"))
+            attrs = match.group("attrs") or ""
+            if is_closing:
+                tag_name = stack.pop() if stack else "level1"
+                rebuilt_parts.append(f"</{tag_name}>")
+                continue
+
+            normalized_depth = min(len(stack) + 1, 6)
+            tag_name = f"level{normalized_depth}"
+            stack.append(tag_name)
+            sequence += 1
+            attrs = self._set_attribute(attrs, "id", f"l-{sequence}")
+            rebuilt_parts.append(f"<{tag_name}{attrs}>")
+
+        rebuilt_parts.append(xml_text[cursor:])
+        return "".join(rebuilt_parts)
+
+    @staticmethod
+    def _page_attributes(page_value: str) -> tuple[str, str]:
+        cleaned = page_value.strip()
+        normalized_identifier = re.sub(r"[^0-9A-Za-z_-]+", "-", cleaned.lower()).strip("-") or "unknown"
+        if re.fullmatch(r"\d+[A-Za-z]+", cleaned):
+            return ("special", f"page-{normalized_identifier}")
+        if re.fullmatch(r"[ivxlcdm]+", cleaned, re.IGNORECASE):
+            return ("front", f"page-{normalized_identifier}")
+        return ("normal", f"page-{normalized_identifier}")
+
+    @staticmethod
+    def _local_name(element: etree._Element) -> str:
+        if not isinstance(element.tag, str):
+            return ""
+        if "}" in element.tag:
+            return element.tag.split("}", 1)[1]
+        return element.tag
+
+    @staticmethod
+    def _set_attribute(attrs: str, name: str, value: str) -> str:
+        pattern = re.compile(rf'(\s{name}\s*=\s*")([^"]*)(")', re.IGNORECASE)
+        if pattern.search(attrs):
+            return pattern.sub(rf'\1{value}\3', attrs, count=1)
+        return f'{attrs} {name}="{value}"'

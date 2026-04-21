@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import uuid
-
 from PyQt6.QtCore import QDate, QTimer, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -23,7 +21,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from technocops_ddc.models import AuthorEntry, DTBookMetadata, FIXED_PUBLISHER, PageRangeSelection
+from technocops_ddc.models import (
+    AuthorEntry,
+    DOCUMENT_TYPE_OPTIONS,
+    DTBookMetadata,
+    FIXED_PUBLISHER,
+    PageRangeSelection,
+)
 
 
 class InputListWidget(QListWidget):
@@ -72,23 +76,25 @@ class MetadataForm(QWidget):
         self.uid_input = QLineEdit()
         self.title_input = QLineEdit()
         self.publisher_input = QLineEdit(FIXED_PUBLISHER)
-        self.language_input = QLineEdit("en")
+        self.language_input = QLineEdit()
         self.identifier_input = QLineEdit()
         self.source_input = QLineEdit()
         self.source_publisher_input = QLineEdit()
         self.producer_input = QLineEdit()
         self.doc_type_input = QComboBox()
-        self.doc_type_input.addItems(["sv", "ro"])
+        self.doc_type_input.addItem("Select document type", "")
+        for label, value in DOCUMENT_TYPE_OPTIONS:
+            self.doc_type_input.addItem(label, value)
         self.author_rows: list[AuthorRowWidget] = []
 
-        self.uid_input.setPlaceholderText("Example: 374388")
-        self.identifier_input.setPlaceholderText("Usually same as UID")
-        self.title_input.setPlaceholderText("Document title")
-        self.publisher_input.setPlaceholderText("Publisher name")
-        self.source_input.setPlaceholderText("ISBN if available")
-        self.source_publisher_input.setPlaceholderText("Source publisher")
-        self.producer_input.setPlaceholderText("Example: Continuum Content Solutions")
-        self.language_input.setPlaceholderText("Auto-detected language code")
+        self.uid_input.setPlaceholderText("Please enter UID or click Generate IDs")
+        self.identifier_input.setPlaceholderText("Please enter Identifier")
+        self.title_input.setPlaceholderText("Please enter Title")
+        self.publisher_input.setPlaceholderText("Dedicon")
+        self.source_input.setPlaceholderText("Please enter ISBN")
+        self.source_publisher_input.setPlaceholderText("Please enter Source Publisher")
+        self.producer_input.setPlaceholderText("Continuum Content Solutions")
+        self.language_input.setPlaceholderText("Please enter language code (example: nl)")
         self._configure_input_sizes()
         self._connect_field_signals()
         self.publisher_input.setReadOnly(True)
@@ -100,8 +106,10 @@ class MetadataForm(QWidget):
             widget.setCalendarPopup(True)
             widget.setDisplayFormat("yyyy-MM-dd")
             widget.setMinimumHeight(38)
+            widget.setToolTip("Select the date from the calendar popup.")
             widget.dateChanged.connect(lambda *_args: self.metadataChanged.emit())
         self.doc_type_input.setMinimumHeight(38)
+        self.doc_type_input.setCurrentIndex(0)
         self.doc_type_input.currentTextChanged.connect(lambda *_args: self.metadataChanged.emit())
 
         self.generate_ids_button = QPushButton("Generate IDs")
@@ -165,10 +173,17 @@ class MetadataForm(QWidget):
         layout.addWidget(self.author_rows_container)
         layout.addLayout(tools_layout)
 
-        self.generate_ids()
-
     def generate_ids(self) -> None:
-        generated_uid = self._derive_book_id(self.document_hint) or uuid.uuid4().hex
+        generated_uid = (
+            self.uid_input.text().strip()
+            or self.identifier_input.text().strip()
+            or self._derive_book_id(self.document_hint)
+        )
+        if not generated_uid:
+            self.generate_ids_button.setText("Load a file first")
+            self.generate_ids_button.setEnabled(False)
+            QTimer.singleShot(1200, self._reset_generate_button)
+            return
         self.uid_input.setText(generated_uid)
         self.identifier_input.setText(generated_uid)
         if self.generate_ids_button.text() != "IDs Generated":
@@ -179,12 +194,6 @@ class MetadataForm(QWidget):
 
     def apply_document_defaults(self, first_document_name: str) -> None:
         self.document_hint = first_document_name
-        if not self.title_input.text().strip():
-            self.title_input.setText(first_document_name)
-        suggested_id = self._derive_book_id(first_document_name)
-        if suggested_id:
-            self.uid_input.setText(suggested_id)
-            self.identifier_input.setText(suggested_id)
 
     def apply_detected_language(self, language_code: str) -> None:
         normalized = language_code.strip().lower()
@@ -203,14 +212,35 @@ class MetadataForm(QWidget):
         publisher: str = "",
         source_publisher: str = "",
     ) -> None:
-        if title and not self.title_input.text().strip():
-            self.title_input.setText(title)
-        if source_isbn and not self.source_input.text().strip():
-            self.source_input.setText(source_isbn)
         if not self.publisher_input.text().strip():
             self.publisher_input.setText(FIXED_PUBLISHER)
-        if source_publisher and not self.source_publisher_input.text().strip():
-            self.source_publisher_input.setText(source_publisher)
+        self.publisher_input.setPlaceholderText("Dedicon")
+
+    def reset_metadata(self) -> None:
+        self.document_hint = ""
+        self.auto_language_code = ""
+        self.uid_input.clear()
+        self.identifier_input.clear()
+        self.title_input.clear()
+        self.language_input.clear()
+        self.source_input.clear()
+        self.source_publisher_input.clear()
+        self.producer_input.clear()
+        self.publisher_input.setText(FIXED_PUBLISHER)
+        self.doc_type_input.setCurrentIndex(0)
+        today = QDate.currentDate()
+        self.completion_date_input.setDate(today)
+        self.produced_date_input.setDate(today)
+
+        while len(self.author_rows) > 1:
+            row = self.author_rows.pop()
+            row.setParent(None)
+            row.deleteLater()
+        if not self.author_rows:
+            self.add_author_row()
+        self.author_rows[0].clear()
+        self._refresh_author_rows()
+        self.metadataChanged.emit()
 
     def add_author_row(self, surname: str = "", first_name: str = "") -> None:
         author_row = AuthorRowWidget(surname=surname, first_name=first_name)
@@ -252,7 +282,7 @@ class MetadataForm(QWidget):
             creator_surname=primary_author.surname,
             creator_first_name=primary_author.first_name,
             completion_date=self.completion_date_input.date().toString("yyyy-MM-dd"),
-            publisher=self.publisher_input.text().strip(),
+            publisher=FIXED_PUBLISHER,
             language=self.language_input.text().strip(),
             identifier=self.identifier_input.text().strip(),
             source_isbn=self.source_input.text().strip(),
@@ -260,7 +290,7 @@ class MetadataForm(QWidget):
             source_publisher=self.source_publisher_input.text().strip(),
             producer=self.producer_input.text().strip(),
             authors=authors,
-            doc_type=self.doc_type_input.currentText(),
+            doc_type=(self.doc_type_input.currentData() or "").strip(),
         )
 
     def _reset_generate_button(self) -> None:
@@ -382,51 +412,123 @@ class HeaderWidget(QWidget):
 class PageRangeWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.enable_checkbox = QCheckBox("Limit conversion to a page range")
         self.start_spin = QSpinBox()
-        self.end_spin = QSpinBox()
-        for spin_box in (self.start_spin, self.end_spin):
-            spin_box.setRange(1, 99999)
-            spin_box.setValue(1)
-            spin_box.setMinimumWidth(96)
+        self.start_spin.setRange(1, 999999)
+        self.start_spin.setValue(1)
+        self.start_spin.setMinimumWidth(110)
 
-        self.enable_checkbox.toggled.connect(self._refresh_state)
+        heading_label = QLabel("Generated Page Number Start")
+        helper_label = QLabel(
+            "Use this as the first generated page number. Every HTML `<page>` marker after that will continue automatically to the end."
+        )
+        helper_label.setWordWrap(True)
+        helper_label.setProperty("role", "subtitle")
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(10)
+        row.addWidget(heading_label)
+        row.addWidget(self.start_spin)
+        row.addStretch(1)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-        layout.addWidget(self.enable_checkbox)
-        layout.addStretch(1)
-        layout.addWidget(QLabel("Start Page"))
-        layout.addWidget(self.start_spin)
-        layout.addWidget(QLabel("End Page"))
-        layout.addWidget(self.end_spin)
-        self._refresh_state()
+        container = QVBoxLayout()
+        container.setContentsMargins(0, 0, 0, 0)
+        container.setSpacing(6)
+        container.addLayout(row)
+        container.addWidget(helper_label)
+        layout.addLayout(container, stretch=1)
 
-    def selection(self) -> PageRangeSelection | None:
-        if not self.enable_checkbox.isChecked():
-            return None
-        return PageRangeSelection(
-            start_page=self.start_spin.value(),
-            end_page=self.end_spin.value(),
-        )
+    def selection(self) -> PageRangeSelection:
+        return PageRangeSelection(start_page=self.start_spin.value())
 
     def validation_errors(self) -> list[str]:
-        selection = self.selection()
-        if selection is None:
-            return []
-        return selection.validate()
+        return self.selection().validate()
 
     def summary_label(self) -> str:
-        selection = self.selection()
-        if selection is None:
-            return "All pages"
-        return selection.label
+        return self.selection().label
 
-    def _refresh_state(self) -> None:
-        enabled = self.enable_checkbox.isChecked()
-        self.start_spin.setEnabled(enabled)
-        self.end_spin.setEnabled(enabled)
+
+class IdRegenerationWidget(QWidget):
+    optionsChanged = pyqtSignal()
+    loadXmlRequested = pyqtSignal()
+    applyRequested = pyqtSignal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.page_ids_checkbox = QCheckBox("Regenerate Page IDs")
+        self.level_ids_checkbox = QCheckBox("Regenerate Level IDs")
+        self.load_xml_button = QPushButton("Load XML")
+        self.load_xml_button.setProperty("variant", "secondary")
+        self.apply_button = QPushButton("Apply ID Finalizer")
+        self.apply_button.setProperty("variant", "secondary")
+        self.status_label = QLabel("Available after `Generate XML` or after loading an existing XML file.")
+        self.status_label.setWordWrap(True)
+        self.status_label.setProperty("role", "subtitle")
+        hint = QLabel("Only `id` and `page` attributes are updated. Content and structure remain unchanged.")
+        hint.setWordWrap(True)
+        hint.setProperty("role", "subtitle")
+
+        self.page_ids_checkbox.toggled.connect(self._emit_options_changed)
+        self.level_ids_checkbox.toggled.connect(self._emit_options_changed)
+        self.load_xml_button.clicked.connect(lambda _checked=False: self.loadXmlRequested.emit())
+        self.apply_button.clicked.connect(lambda _checked=False: self.applyRequested.emit())
+
+        controls = QHBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(12)
+        controls.addWidget(self.page_ids_checkbox)
+        controls.addWidget(self.level_ids_checkbox)
+        controls.addStretch(1)
+
+        actions = QHBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setSpacing(8)
+        actions.addWidget(self.load_xml_button)
+        actions.addWidget(self.apply_button)
+        actions.addStretch(1)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        layout.addLayout(controls)
+        layout.addLayout(actions)
+        layout.addWidget(self.status_label)
+        layout.addWidget(hint)
+        self.set_source_available(False)
+
+    @property
+    def regenerate_page_ids(self) -> bool:
+        return self.page_ids_checkbox.isChecked()
+
+    @property
+    def regenerate_level_ids(self) -> bool:
+        return self.level_ids_checkbox.isChecked()
+
+    def set_source_available(self, available: bool, source_label: str = "") -> None:
+        self.page_ids_checkbox.setEnabled(available)
+        self.level_ids_checkbox.setEnabled(available)
+        if not available:
+            self.page_ids_checkbox.setChecked(False)
+            self.level_ids_checkbox.setChecked(False)
+            self.apply_button.setEnabled(False)
+            self.status_label.setText("Available after `Generate XML` or after loading an existing XML file.")
+            return
+
+        source_text = source_label or "XML source is ready for ID-only finalization."
+        self.status_label.setText(source_text)
+        self._refresh_apply_button()
+
+    def _emit_options_changed(self) -> None:
+        self._refresh_apply_button()
+        self.optionsChanged.emit()
+
+    def _refresh_apply_button(self) -> None:
+        self.apply_button.setEnabled(
+            (self.page_ids_checkbox.isEnabled() or self.level_ids_checkbox.isEnabled())
+            and (self.page_ids_checkbox.isChecked() or self.level_ids_checkbox.isChecked())
+        )
 
 
 class MetadataSummaryCard(QWidget):
@@ -487,8 +589,9 @@ class MetadataDialog(QDialog):
         self.setWindowTitle("DTBook Metadata Editor")
         self.resize(980, 700)
         self.setMinimumSize(860, 620)
+        self.metadata_form = metadata_form
 
-        intro = QLabel("Review or update every metadata field here. Detected values from the input files will be filled automatically when available.")
+        intro = QLabel("Review or update every metadata field here. Use Clean Metadata to reset the editor for a new document.")
         intro.setProperty("role", "subtitle")
         intro.setWordWrap(True)
 
@@ -496,12 +599,22 @@ class MetadataDialog(QDialog):
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(metadata_form)
 
+        self.clean_button = QPushButton("Clean Metadata")
+        self.clean_button.setProperty("variant", "secondary")
+        self.clean_button.clicked.connect(self.metadata_form.reset_metadata)
+
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         button_box.rejected.connect(self.reject)
+
+        actions = QHBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.addWidget(self.clean_button)
+        actions.addStretch(1)
+        actions.addWidget(button_box)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
         layout.addWidget(intro)
         layout.addWidget(scroll_area, stretch=1)
-        layout.addWidget(button_box)
+        layout.addLayout(actions)

@@ -39,6 +39,7 @@ BRANDING_DIR = ASSETS_DIR / "branding"
 APP_LOGO_PATH = BRANDING_DIR / "Dedicon-removebg-preview.png"
 APP_ICON_PATH = BRANDING_DIR / "technocops_app_icon.ico"
 SPLASH_IMAGE_PATH = BRANDING_DIR / "technocops_splash.png"
+CALENDAR_ICON_PATH = BRANDING_DIR / "calendar_dropdown.svg"
 DTBOOK_DTD_PATH = ASSETS_DIR / "dtd" / "dtbook-basic.dtd"
 APPDATA_ROOT = Path(
     os.environ.get(
@@ -54,7 +55,7 @@ SUPPORTED_HTML_EXTENSIONS = {".html", ".htm"}
 SUPPORTED_DROP_EXTENSIONS = SUPPORTED_HTML_EXTENSIONS | {".zip"}
 
 DEFAULT_LANGUAGE = "en"
-DEFAULT_DOC_TYPE = "sv"
+DEFAULT_DOC_TYPE = ""
 TRIAL_PERIOD_DAYS = 3
 ACTIVATION_KEY_SECRET = "technocops-ddc-pro-2026-admin"
 

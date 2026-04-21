@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import time
 
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtCore import Qt
@@ -34,11 +35,6 @@ def _create_splash() -> QSplashScreen | None:
         Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint,
     )
     splash.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-    splash.showMessage(
-        f"{APP_NAME} {APP_VERSION_LABEL}",
-        Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter,
-        Qt.GlobalColor.white,
-    )
     return splash
 
 
@@ -70,6 +66,10 @@ def run() -> int:
     if splash is not None:
         splash.show()
         application.processEvents()
+        hold_until = time.monotonic() + 2.0
+        while time.monotonic() < hold_until:
+            application.processEvents()
+            time.sleep(0.01)
 
     window = MainWindow()
     window.show()

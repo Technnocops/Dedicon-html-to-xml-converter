@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from PyQt6.QtCore import QThread, QTimer, Qt
 from PyQt6.QtGui import QAction, QIcon, QPixmap
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QFileDialog,
     QGroupBox,
@@ -16,6 +17,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QProgressDialog,
     QSplitter,
     QStatusBar,
     QTabWidget,
@@ -24,8 +26,8 @@ from PyQt6.QtWidgets import (
 )
 
 from technocops_ddc import APP_NAME, APP_VERSION, APP_VERSION_LABEL, COMPANY_NAME
-from technocops_ddc.config import APP_ICON_PATH, APP_LOGO_PATH, COPYRIGHT_LABEL, GITHUB_REPOSITORY, LOGO_PATH, WINDOW_TITLE
-from technocops_ddc.models import ConversionResult, InputBatch, InputDocument
+from technocops_ddc.config import APP_ICON_PATH, APP_LOGO_PATH, COPYRIGHT_LABEL, LOGO_PATH, WINDOW_TITLE
+from technocops_ddc.models import ConversionResult, InputBatch, InputDocument, UpdateInfo
 from technocops_ddc.services.conversion_service import ConversionService
 from technocops_ddc.services.dtbook_converter import DTBookConverter
 from technocops_ddc.services.file_service import InputCollectionService
@@ -33,7 +35,15 @@ from technocops_ddc.services.language_service import DocumentLanguageDetector
 from technocops_ddc.services.license_service import LicenseService
 from technocops_ddc.services.metadata_extractor import DocumentMetadataExtractor
 from technocops_ddc.services.update_service import UpdateService
-from technocops_ddc.ui.widgets import HeaderWidget, InputListWidget, MetadataDialog, MetadataForm, MetadataSummaryCard, PageRangeWidget
+from technocops_ddc.ui.widgets import (
+    HeaderWidget,
+    IdRegenerationWidget,
+    InputListWidget,
+    MetadataDialog,
+    MetadataForm,
+    MetadataSummaryCard,
+    PageRangeWidget,
+)
 from technocops_ddc.ui.worker import ConversionWorker
 
 
@@ -51,9 +61,12 @@ class MainWindow(QMainWindow):
 
         self.documents: list[InputDocument] = []
         self.temp_directories: list[TemporaryDirectory[str]] = []
+        self.base_result: ConversionResult | None = None
         self.last_result: ConversionResult | None = None
+        self.xml_source_label = ""
         self.worker_thread: QThread | None = None
         self.worker: ConversionWorker | None = None
+        self.update_in_progress = False
 
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(1440, 860)
@@ -228,6 +241,11 @@ class MainWindow(QMainWindow):
         self.page_range_widget = PageRangeWidget()
         conversion_layout.addWidget(self.page_range_widget)
 
+        self.id_regeneration_widget = IdRegenerationWidget()
+        self.id_regeneration_widget.loadXmlRequested.connect(self.load_xml_for_finalizer)
+        self.id_regeneration_widget.applyRequested.connect(self.apply_result_post_processing)
+        conversion_layout.addWidget(self.id_regeneration_widget)
+
         status_row = QHBoxLayout()
         self.progress_label = QLabel("Waiting for input...")
         self.progress_label.setProperty("role", "subtitle")
@@ -288,11 +306,6 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
 
-        help_menu = self.menuBar().addMenu("Help")
-        updater_action = QAction("GitHub Updater Settings", self)
-        updater_action.triggered.connect(lambda _checked=False: self.show_updater_hint())
-        help_menu.addAction(updater_action)
-
     def _create_button(self, label: str, callback, secondary: bool = False) -> QPushButton:
         button = QPushButton(label)
         if secondary:
@@ -344,6 +357,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, APP_NAME, f"No HTML files were found in {batch.source_label}.")
             return
 
+        should_reset_metadata = not self.documents
+        if self.documents and self._document_series_key(self.documents[0].path.stem) != self._document_series_key(batch.documents[0].path.stem):
+            should_reset_metadata = True
+        if should_reset_metadata:
+            self.metadata_form.reset_metadata()
+
         self.documents.extend(batch.documents)
         self._resequence_documents()
         self._refresh_document_list()
@@ -391,6 +410,9 @@ class MainWindow(QMainWindow):
             and can_use_tool
             and not (self.last_result.has_critical_errors and self.stop_on_critical_checkbox.isChecked())
         )
+        xml_source_available = self.base_result is not None and self.worker_thread is None and can_use_tool
+        source_label = self.xml_source_label if xml_source_available else ""
+        self.id_regeneration_widget.set_source_available(xml_source_available, source_label)
         self.refresh_metadata_summary()
 
     def _start_license_countdown(self) -> None:
@@ -465,21 +487,28 @@ class MainWindow(QMainWindow):
             return
 
         self.documents = [document for document in self.documents if document.document_id not in selected_ids]
+        self.base_result = None
         self.last_result = None
+        self.xml_source_label = ""
         self.xml_preview.clear()
         self.logs_preview.clear()
+        if not self.documents:
+            self.metadata_form.reset_metadata()
         self._resequence_documents()
         self._refresh_document_list()
 
     def clear_documents(self) -> None:
         self.documents.clear()
+        self.base_result = None
         self.last_result = None
+        self.xml_source_label = ""
         self.input_preview.clear()
         self.xml_preview.clear()
         self.logs_preview.clear()
         self.progress_bar.setValue(0)
         self.progress_label.setText("Waiting for input...")
         self._cleanup_temp_directories()
+        self.metadata_form.reset_metadata()
         self._refresh_document_list()
 
     def preview_selected_input(self) -> None:
@@ -532,6 +561,7 @@ class MainWindow(QMainWindow):
             return
 
         self.last_result = None
+        self.base_result = None
         self.save_button.setEnabled(False)
         self.xml_preview.clear()
         self.logs_preview.setPlainText("Conversion started...\n")
@@ -568,7 +598,9 @@ class MainWindow(QMainWindow):
             self.on_conversion_failed("Unexpected conversion result type.")
             return
 
+        self.base_result = result
         self.last_result = result
+        self.xml_source_label = "Current source: generated XML from the latest conversion."
         self.progress_bar.setValue(100)
         self.progress_label.setText("Conversion completed.")
         self.xml_preview.setPlainText(result.xml_text)
@@ -585,6 +617,9 @@ class MainWindow(QMainWindow):
             )
 
     def on_conversion_failed(self, message: str) -> None:
+        self.base_result = None
+        self.last_result = None
+        self.xml_source_label = ""
         self.progress_bar.setValue(0)
         self.progress_label.setText("Conversion failed.")
         self.logs_preview.setPlainText(f"Conversion failed:\n{message}")
@@ -617,7 +652,13 @@ class MainWindow(QMainWindow):
             )
             return
 
-        default_name = self.metadata_form.title_input.text().strip() or "technocops_dtbook_output"
+        default_name = self.conversion_service.extract_uid_from_xml(self.last_result.xml_text)
+        if not default_name:
+            default_name = self.metadata_form.metadata().uid.strip()
+        if not default_name:
+            default_name = self.metadata_form.title_input.text().strip()
+        if not default_name:
+            default_name = "technocops_dtbook_output"
         default_name = "".join(character if character.isalnum() or character in {"_", "-"} else "_" for character in default_name)
         target_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -647,6 +688,11 @@ class MainWindow(QMainWindow):
         self.check_for_updates(silent=True)
 
     def check_for_updates(self, silent: bool = False) -> None:
+        if self.update_in_progress:
+            if not silent:
+                QMessageBox.information(self, APP_NAME, "An application update is already in progress.")
+            return
+
         if not self.update_service.is_configured:
             if not silent:
                 self.show_updater_hint()
@@ -670,49 +716,92 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Version {update_info.version} is available.")
         self._show_update_prompt(update_info)
 
-    def _show_update_prompt(self, update_info) -> None:
+    def _show_update_prompt(self, update_info: UpdateInfo) -> None:
         message_box = QMessageBox(self)
         message_box.setWindowTitle("Update Available")
         message_box.setIcon(QMessageBox.Icon.Information)
-        message_box.setText(f"Version {update_info.version} is available for download.")
+        message_box.setText(f"Version {update_info.version} is ready to install.")
         message_box.setInformativeText(
+            "The update will be downloaded and installed automatically. Your local data and license stay in secure app storage.\n\n"
             "Release summary:\n\n"
             + (update_info.summary or "No release notes were provided.")
         )
-        download_button = message_box.addButton("Download & Launch", QMessageBox.ButtonRole.AcceptRole)
-        release_button = message_box.addButton("Open Release Page", QMessageBox.ButtonRole.ActionRole)
+        update_button = message_box.addButton("Update Now", QMessageBox.ButtonRole.AcceptRole)
         message_box.addButton("Later", QMessageBox.ButtonRole.RejectRole)
         message_box.exec()
 
         clicked_button = message_box.clickedButton()
-        if clicked_button is download_button:
-            try:
-                update_path = self.update_service.download_update(update_info)
-            except Exception as exc:  # noqa: BLE001
-                QMessageBox.warning(self, APP_NAME, f"Unable to download the update:\n\n{exc}")
-                return
+        if clicked_button is update_button:
+            self._install_update(update_info)
 
-            if update_path is None:
-                QMessageBox.information(self, APP_NAME, "The release page has been opened in your browser.")
-                return
-
-            self.update_service.launch_update(update_path)
+    def _install_update(self, update_info: UpdateInfo) -> None:
+        if self.worker_thread is not None:
             QMessageBox.information(
                 self,
                 APP_NAME,
-                f"The update package was downloaded to:\n\n{update_path}\n\nComplete the update after closing the application.",
+                "Please let the current conversion finish before starting the application update.",
             )
-        elif clicked_button is release_button:
-            self.update_service.open_release_page(update_info)
+            return
 
-    def show_updater_hint(self) -> None:
-        repository_hint = GITHUB_REPOSITORY or "<owner>/<repo>"
+        self.update_in_progress = True
+        self.check_updates_button.setEnabled(False)
+        self.statusBar().showMessage("Update is in progress...")
+
+        progress_dialog = QProgressDialog("Update is in progress...\n\nDownloading installer...", "", 0, 0, self)
+        progress_dialog.setWindowTitle("Update in Progress")
+        progress_dialog.setCancelButton(None)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setAutoClose(False)
+        progress_dialog.setAutoReset(False)
+        progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress_dialog.show()
+        QApplication.processEvents()
+
+        def on_progress(downloaded_bytes: int, total_bytes: int | None) -> None:
+            if total_bytes:
+                progress_dialog.setRange(0, total_bytes)
+                progress_dialog.setValue(min(downloaded_bytes, total_bytes))
+                downloaded_mb = downloaded_bytes / (1024 * 1024)
+                total_mb = total_bytes / (1024 * 1024)
+                progress_dialog.setLabelText(
+                    "Update is in progress...\n\n"
+                    f"Downloading installer... {downloaded_mb:.1f} MB / {total_mb:.1f} MB"
+                )
+            else:
+                progress_dialog.setRange(0, 0)
+                progress_dialog.setLabelText("Update is in progress...\n\nDownloading installer...")
+            QApplication.processEvents()
+
+        try:
+            update_path = self.update_service.download_update(update_info, progress_callback=on_progress)
+            progress_dialog.setRange(0, 0)
+            progress_dialog.setLabelText("Update is in progress...\n\nPreparing automatic installer...")
+            QApplication.processEvents()
+            self.update_service.start_background_update(
+                update_path,
+                restart_path=self.update_service.default_restart_path(),
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.update_in_progress = False
+            self.check_updates_button.setEnabled(True)
+            progress_dialog.close()
+            self.statusBar().showMessage("Update failed.")
+            QMessageBox.warning(self, APP_NAME, f"Unable to install the update automatically:\n\n{exc}")
+            return
+
+        progress_dialog.close()
         QMessageBox.information(
             self,
-            "GitHub Updater",
-            "GitHub updates are available when the repository is configured.\n\n"
-            f"Current repository setting: {repository_hint}\n\n"
-            "Set the TECHNOCOPS_DDC_GITHUB_REPO environment variable before launching the app to enable update checks.",
+            APP_NAME,
+            "Update is in progress.\n\nThe application will close now and restart automatically after installation completes.",
+        )
+        QTimer.singleShot(150, self.close)
+
+    def show_updater_hint(self) -> None:
+        QMessageBox.information(
+            self,
+            "Automatic Updates",
+            "Automatic updates are not configured for this build yet.",
         )
 
     def show_about_dialog(self) -> None:
@@ -731,10 +820,93 @@ class MainWindow(QMainWindow):
             return "Conversion completed with no validation issues."
         return "\n".join(issue.display_text for issue in result.issues)
 
+    def load_xml_for_finalizer(self) -> None:
+        xml_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open XML for ID Finalizer",
+            "",
+            "XML Files (*.xml)",
+        )
+        if not xml_path:
+            return
+
+        try:
+            xml_text = Path(xml_path).read_text(encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(self, APP_NAME, f"Unable to read the XML file:\n\n{exc}")
+            return
+
+        self.base_result = ConversionResult(xml_text=xml_text, issues=[], image_assets=[])
+        self.last_result = self.base_result
+        self.xml_source_label = f"Current source: loaded XML ({Path(xml_path).name})."
+        self.xml_preview.setPlainText(xml_text)
+        self.logs_preview.setPlainText(
+            "XML file loaded for ID-only finalization.\n"
+            "No content changes will be made unless you explicitly apply the ID finalizer."
+        )
+        self.preview_tabs.setCurrentWidget(self.xml_preview)
+        self.statusBar().showMessage(f"Loaded XML for ID finalizer: {xml_path}")
+        self._refresh_state()
+
+    def apply_result_post_processing(self) -> None:
+        if self.base_result is None:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Generate XML first or load an existing XML file before applying the ID finalizer.",
+            )
+            return
+
+        if not (
+            self.id_regeneration_widget.regenerate_page_ids
+            or self.id_regeneration_widget.regenerate_level_ids
+        ):
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "Select `Regenerate Page IDs`, `Regenerate Level IDs`, or both before applying the XML finalizer.",
+            )
+            return
+
+        try:
+            xml_text = self.conversion_service.finalize_xml_ids(
+                self.base_result.xml_text,
+                regenerate_page_ids=self.id_regeneration_widget.regenerate_page_ids,
+                regenerate_level_ids=self.id_regeneration_widget.regenerate_level_ids,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.last_result = self.base_result
+            self.logs_preview.setPlainText(
+                self._build_issue_log_text(self.base_result)
+                + f"\n\n[WARNING] ID finalizer could not be applied: {exc}"
+            )
+            self.xml_preview.setPlainText(self.base_result.xml_text)
+            self.statusBar().showMessage("Conversion completed with ID finalizer warning.")
+            self._refresh_state()
+            return
+
+        self.last_result = ConversionResult(
+            xml_text=xml_text,
+            issues=list(self.base_result.issues),
+            image_assets=list(self.base_result.image_assets),
+        )
+        self.xml_preview.setPlainText(self.last_result.xml_text)
+        self.logs_preview.setPlainText(self._build_issue_log_text(self.last_result))
+        self.preview_tabs.setCurrentWidget(self.xml_preview)
+        self.statusBar().showMessage("ID finalizer applied to the XML source without changing content.")
+        self._refresh_state()
+
     def _cleanup_temp_directories(self) -> None:
         while self.temp_directories:
             temp_directory = self.temp_directories.pop()
             temp_directory.cleanup()
+
+    @staticmethod
+    def _document_series_key(document_name: str) -> str:
+        cleaned = document_name.strip()
+        if not cleaned:
+            return ""
+        return cleaned.split("_", 1)[0].lower()
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._cleanup_temp_directories()

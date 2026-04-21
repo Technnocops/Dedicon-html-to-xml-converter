@@ -26,12 +26,20 @@ INLINE_OUTPUT_TAGS = {"strong", "em", "linenum"}
 INLINE_FORMATTING_TAGS = INLINE_OUTPUT_TAGS | {"b", "i", "span"}
 FIXED_LINE_BREAK_REPLACEMENTS = (
     ("<p>\n<strong>", "<p><strong>"),
+    ("<p>\n<em>", "<p><em>"),
+    ("<strong>\n<em>", "<strong><em>"),
     ("<li>\n<strong>", "<li><strong>"),
     ("</strong>\n<em>", "</strong><em>"),
     ("<li>\n<em>", "<li><em>"),
     ("<line>\n<strong>", "<line><strong>"),
     ("<line>\n<linenum>", "<line><linenum>"),
+    ("<line>\n<em>", "<line><em>"),
     ("</linenum>\n<strong>", "</linenum><strong>"),
+    ("</strong>\n</p>", "</strong></p>"),
+    ("</strong>\n</line>", "</strong></line>"),
+    ("</em>\n</strong>", "</em></strong>"),
+    ("</em>\n</line>", "</em></line>"),
+    ("</em>\n</p>", "</em></p>"),
     ("<td>\n<strong>", "<td><strong>"),
     ("</strong>\n</td>", "</strong></td>"),
 )
@@ -93,6 +101,7 @@ class ConversionContext:
     list_stack: list[etree._Element] = field(default_factory=list)
     list_item_stack: list[etree._Element | None] = field(default_factory=list)
     active_linegroup: etree._Element | None = None
+    active_figure: etree._Element | None = None
     current_page_number: str = ""
     page_counter: int = 0
     level_counter: int = 0
@@ -100,11 +109,7 @@ class ConversionContext:
     used_output_names: set[str] = field(default_factory=set)
     book_id: str = ""
     page_range: PageRangeSelection | None = None
-    range_started: bool = True
-    range_finished: bool = False
     detected_pages: set[int] = field(default_factory=set)
-    range_start_found: bool = False
-    range_end_found: bool = False
 
     @property
     def active_parent(self) -> etree._Element:
@@ -126,9 +131,7 @@ class ConversionContext:
 
     @property
     def capture_enabled(self) -> bool:
-        if self.page_range is None:
-            return True
-        return self.range_started and not self.range_finished
+        return True
 
     def open_level(self, level_number: int, line_number: int | None = None) -> etree._Element:
         while self.level_stack and self.level_stack[-1][0] >= level_number:
@@ -189,8 +192,7 @@ class DTBookConverter:
             bodymatter=bodymatter,
             book_id=self._derive_book_id(metadata, documents),
             page_range=page_range,
-            range_started=page_range is None or page_range.start_page <= 1,
-            range_start_found=page_range is None or page_range.start_page <= 1,
+            page_counter=(page_range.start_page - 1) if page_range is not None else 0,
         )
         total_files = max(len(documents), 1)
 
@@ -308,6 +310,10 @@ class DTBookConverter:
         return int(digit_match.group(0))
 
     def _resolve_effective_page_number(self, raw_value: str, context: ConversionContext) -> int:
+        if context.page_range is not None:
+            context.page_counter += 1
+            return context.page_counter
+
         numeric_page = self._parse_numeric_page(raw_value)
         if numeric_page is not None:
             context.page_counter = numeric_page
@@ -317,13 +323,7 @@ class DTBookConverter:
         return context.page_counter
 
     def _should_skip_node_outside_range(self, source_node: etree._Element, context: ConversionContext) -> bool:
-        if context.page_range is None:
-            return False
-        if context.range_finished:
-            return True
-        if context.capture_enabled:
-            return False
-        return not self._node_contains_page_marker(source_node)
+        return False
 
     @staticmethod
     def _node_contains_page_marker(source_node: etree._Element) -> bool:
@@ -365,7 +365,7 @@ class DTBookConverter:
             return
 
         if tag in {"html", "body", "div"}:
-            if self._convert_figure_like_container(source_node, parent, context):
+            if context.active_figure is None and self._convert_figure_like_container(source_node, parent, context):
                 return
             self._convert_container(source_node, context, destination_parent=parent)
             return
@@ -397,7 +397,8 @@ class DTBookConverter:
             return
 
         if tag == "img":
-            self._convert_image_group(source_node, parent, context)
+            image_parent = context.active_figure if context.active_figure is not None else parent
+            self._convert_image_group(source_node, image_parent, context)
             return
 
         if tag == "table":
@@ -412,7 +413,7 @@ class DTBookConverter:
             self._convert_sidebar(source_node, parent, context)
             return
 
-        if tag in {"figure", "fig"} and self._convert_figure_like_container(source_node, parent, context):
+        if tag in {"figure", "fig"} and context.active_figure is None and self._convert_figure_like_container(source_node, parent, context):
             return
 
         context.issues.append(
@@ -444,6 +445,16 @@ class DTBookConverter:
             self._append_inline_content(line, source_node, context, pm_mode=True, strip_markup_tokens=True)
             if not self._has_meaningful_content(line):
                 context.active_linegroup.remove(line)
+            return
+
+        if context.active_figure is not None:
+            caption_parent = self._ensure_figure_caption(context.active_figure)
+            paragraph = etree.SubElement(caption_parent, "p")
+            self._append_inline_content(paragraph, source_node, context, strip_markup_tokens=True)
+            if not self._has_meaningful_content(paragraph):
+                caption_parent.remove(paragraph)
+                if not len(caption_parent):
+                    context.active_figure.remove(caption_parent)
             return
 
         if context.list_stack:
@@ -482,6 +493,13 @@ class DTBookConverter:
                     context.sidebar_stack.pop()
             else:
                 self._open_sidebar(context, move_previous_heading=True)
+            return
+
+        if normalized_tag == "fig":
+            if is_closing:
+                self._close_active_figure(context)
+            elif context.active_figure is None:
+                context.active_figure = etree.SubElement(context.current_content_parent, "imggroup")
             return
 
         if normalized_tag in {"ol", "ul"}:
@@ -623,7 +641,7 @@ class DTBookConverter:
                 self._append_text_fragments(target_item, child.tail, context, strip_markup_tokens=True)
 
     def _convert_image_group(self, source_node: etree._Element, parent: etree._Element, context: ConversionContext) -> etree._Element:
-        image_group = etree.SubElement(parent, "imggroup")
+        image_group = parent if self._tag_name(parent) == "imggroup" else etree.SubElement(parent, "imggroup")
         raw_source = (source_node.get("src") or "").strip()
         source_path = self._resolve_image_source_path(raw_source, context)
         output_name = self._build_output_image_name(source_path, raw_source, context)
@@ -647,7 +665,8 @@ class DTBookConverter:
                 )
             )
 
-        etree.SubElement(image_group, "img", src=f"img/{output_name}", alt="afbeelding")
+        if not any(self._tag_name(child) == "img" for child in image_group):
+            etree.SubElement(image_group, "img", src=f"img/{output_name}", alt="afbeelding")
         return image_group
 
     def _resolve_image_source_path(self, raw_source: str, context: ConversionContext) -> Path | None:
@@ -1096,38 +1115,11 @@ class DTBookConverter:
             context.issues.append(
                 ConversionIssue(
                     severity=Severity.WARNING,
-                    message=f"{page_range.label} was requested, but no page markers were detected in the source HTML.",
+                    message=(
+                        f"{page_range.label} was requested, but no HTML `<page>` markers were detected. "
+                        "Content was still converted without generated page numbers."
+                    ),
                     code="page-range-no-markers",
-                )
-            )
-            return
-
-        highest_page = max(context.detected_pages)
-        if page_range.start_page > highest_page:
-            context.issues.append(
-                ConversionIssue(
-                    severity=Severity.WARNING,
-                    message=f"{page_range.label} starts after the highest detected page ({highest_page}). Output is empty for the requested range.",
-                    code="page-range-start-exceeds-document",
-                )
-            )
-            return
-
-        if not context.range_start_found:
-            context.issues.append(
-                ConversionIssue(
-                    severity=Severity.WARNING,
-                    message=f"Start page {page_range.start_page} was not found. Conversion used the nearest available content after the requested boundary.",
-                    code="page-range-start-missing",
-                )
-            )
-
-        if page_range.end_page > highest_page:
-            context.issues.append(
-                ConversionIssue(
-                    severity=Severity.WARNING,
-                    message=f"End page {page_range.end_page} exceeds the highest detected page ({highest_page}). Conversion stopped at the final available page.",
-                    code="page-range-end-exceeds-document",
                 )
             )
 
@@ -1166,6 +1158,8 @@ class DTBookConverter:
         lowered_key = key.lower()
         lowered_value = value.lower()
         if tag == "table" and lowered_key == "border":
+            return False
+        if lowered_key in {"colspan", "rowspan"}:
             return False
         if tag in {"td", "th"} and lowered_key == "style" and "vertical-align" in lowered_value:
             return False
@@ -1284,6 +1278,22 @@ class DTBookConverter:
                 paragraph.remove(emphasis)
         return True
 
+    def _ensure_figure_caption(self, image_group: etree._Element) -> etree._Element:
+        for child in image_group:
+            if self._tag_name(child) == "caption":
+                return child
+        return etree.SubElement(image_group, "caption")
+
+    def _close_active_figure(self, context: ConversionContext) -> None:
+        figure = context.active_figure
+        if figure is None:
+            return
+        if not self._has_meaningful_content(figure):
+            parent = figure.getparent()
+            if parent is not None:
+                parent.remove(figure)
+        context.active_figure = None
+
     def _append_inline_content(
         self,
         target: etree._Element,
@@ -1329,6 +1339,16 @@ class DTBookConverter:
                 self._append_text_to_element(target, " ")
             else:
                 self._append_text_fragments(target, font0_replacement, context, pm_mode=pm_mode)
+            return
+
+        if self._is_underlined_span(source_node):
+            strong = etree.SubElement(target, "strong")
+            emphasis = etree.SubElement(strong, "em")
+            self._append_inline_content(emphasis, source_node, context, pm_mode=pm_mode, strip_markup_tokens=strip_markup_tokens)
+            if not self._has_meaningful_content(emphasis):
+                strong.remove(emphasis)
+            if not self._has_meaningful_content(strong):
+                target.remove(strong)
             return
 
         if tag in {"strong", "b"} or self._is_bold_span(source_node):
@@ -1411,29 +1431,16 @@ class DTBookConverter:
     def _append_pagenum(self, target: etree._Element, value: str, context: ConversionContext) -> None:
         cleaned = value.strip()
         effective_page_number = self._resolve_effective_page_number(cleaned, context)
-        if not cleaned:
+        if context.page_range is not None:
+            cleaned = str(effective_page_number)
+        elif not cleaned:
             cleaned = str(effective_page_number)
 
         context.detected_pages.add(effective_page_number)
 
-        if context.page_range is not None:
-            if effective_page_number < context.page_range.start_page:
-                context.range_started = False
-                context.current_page_number = cleaned
-                return
-            if effective_page_number > context.page_range.end_page:
-                context.range_finished = True
-                context.range_started = False
-                context.current_page_number = cleaned
-                return
-            context.range_started = True
-            context.range_start_found = True
-            if effective_page_number == context.page_range.end_page:
-                context.range_end_found = True
-
         context.current_page_number = cleaned
-        page_id = re.sub(r"[^0-9A-Za-z_-]+", "-", cleaned).strip("-") or "unknown"
-        page_number = etree.SubElement(target, "pagenum", page="normal", id=f"page-{page_id}")
+        page_type, page_id = self._build_page_attributes(cleaned)
+        page_number = etree.SubElement(target, "pagenum", page=page_type, id=page_id)
         page_number.text = cleaned
 
     def _append_heading_text(self, target: etree._Element, source_node: etree._Element) -> None:
@@ -1507,6 +1514,14 @@ class DTBookConverter:
         style = (node.get("style") or "").replace(" ", "").lower()
         return "font-style:italic" in style
 
+    @staticmethod
+    def _is_underlined_span(node: etree._Element) -> bool:
+        tag = node.tag.lower() if isinstance(node.tag, str) else ""
+        if tag != "span":
+            return False
+        style = (node.get("style") or "").replace(" ", "").lower()
+        return "text-decoration:underline" in style or "text-decoration-line:underline" in style
+
     def _extract_special_marker(self, node: etree._Element) -> str:
         candidate = MARKUP_TOKEN_PATTERN.sub("", "".join(node.itertext())).strip()
         return candidate if candidate in SPECIAL_MARKER_VALUES else ""
@@ -1558,10 +1573,6 @@ class DTBookConverter:
             changed = False
             for element in list(root.iter()):
                 if self._merge_adjacent_emphasis(element):
-                    changed = True
-                if self._merge_broken_paragraphs(element):
-                    changed = True
-                if self._merge_broken_list_items(element):
                     changed = True
 
         for element in root.iter():
@@ -1837,6 +1848,16 @@ class DTBookConverter:
         normalized = re.sub(r"([)\]}>])(?=[A-Za-z0-9])", r"\1 ", normalized)
         normalized = re.sub(r"\s{2,}", " ", normalized)
         return normalized
+
+    @staticmethod
+    def _build_page_attributes(page_value: str) -> tuple[str, str]:
+        cleaned = page_value.strip()
+        normalized_identifier = re.sub(r"[^0-9A-Za-z_-]+", "-", cleaned.lower()).strip("-") or "unknown"
+        if re.fullmatch(r"\d+[A-Za-z]+", cleaned):
+            return ("special", f"page-{normalized_identifier}")
+        if re.fullmatch(r"[ivxlcdm]+", cleaned, re.IGNORECASE):
+            return ("front", f"page-{normalized_identifier}")
+        return ("normal", f"page-{normalized_identifier}")
 
     def _cleanup_empty_elements(self, root: etree._Element) -> None:
         removable_tags = {

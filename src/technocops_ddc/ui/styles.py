@@ -1,3 +1,7 @@
+from technocops_ddc.config import CALENDAR_ICON_PATH
+
+CALENDAR_ICON_URL = CALENDAR_ICON_PATH.as_posix()
+
 APP_STYLESHEET = """
 QWidget {
     background: transparent;
@@ -68,6 +72,32 @@ QPushButton[variant="secondary"]:hover {
 QPushButton[variant="secondary"]:pressed {
     background: #203554;
 }
+QCheckBox {
+    color: #f2f7ff;
+    spacing: 10px;
+    font-weight: 600;
+}
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    border: 2px solid #79beff;
+    background: rgba(7, 14, 25, 0.95);
+}
+QCheckBox::indicator:hover {
+    border: 2px solid #9cd0ff;
+    background: rgba(18, 32, 54, 0.98);
+}
+QCheckBox::indicator:checked {
+    border: 2px solid #38d39f;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #1fb978,
+        stop:1 #3be0ad);
+}
+QCheckBox::indicator:disabled {
+    border: 2px solid #4f6583;
+    background: rgba(28, 40, 58, 0.92);
+}
 QLineEdit, QComboBox, QDateEdit, QSpinBox {
     background: rgba(9, 17, 30, 0.92);
     border: 1px solid #2c4567;
@@ -99,6 +129,26 @@ QLineEdit[readOnly="true"], QPlainTextEdit[readOnly="true"] {
 QComboBox::drop-down, QDateEdit::drop-down, QSpinBox::up-button, QSpinBox::down-button {
     border: none;
     width: 24px;
+}
+QDateEdit {
+    padding-right: 34px;
+}
+QDateEdit::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 30px;
+    border-left: 1px solid #36527a;
+    background: rgba(20, 35, 56, 0.98);
+    border-top-right-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+QDateEdit::drop-down:hover {
+    background: rgba(32, 53, 84, 0.98);
+}
+QDateEdit::down-arrow {
+    image: url("__CALENDAR_ICON_URL__");
+    width: 15px;
+    height: 15px;
 }
 QComboBox QAbstractItemView {
     background: #122238;
@@ -229,3 +279,5 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     border: none;
 }
 """
+
+APP_STYLESHEET = APP_STYLESHEET.replace("__CALENDAR_ICON_URL__", CALENDAR_ICON_URL)
