@@ -64,6 +64,7 @@ class MainWindow(QMainWindow):
         self.base_result: ConversionResult | None = None
         self.last_result: ConversionResult | None = None
         self.xml_source_label = ""
+        self.xml_source_path: Path | None = None
         self.worker_thread: QThread | None = None
         self.worker: ConversionWorker | None = None
         self.update_in_progress = False
@@ -490,6 +491,7 @@ class MainWindow(QMainWindow):
         self.base_result = None
         self.last_result = None
         self.xml_source_label = ""
+        self.xml_source_path = None
         self.xml_preview.clear()
         self.logs_preview.clear()
         if not self.documents:
@@ -502,6 +504,7 @@ class MainWindow(QMainWindow):
         self.base_result = None
         self.last_result = None
         self.xml_source_label = ""
+        self.xml_source_path = None
         self.input_preview.clear()
         self.xml_preview.clear()
         self.logs_preview.clear()
@@ -540,6 +543,42 @@ class MainWindow(QMainWindow):
             return
         self.metadata_summary.set_metadata(self.metadata_form.metadata())
 
+    def _default_output_name(self) -> str:
+        default_name = self.conversion_service.extract_uid_from_xml(self.last_result.xml_text) if self.last_result is not None else ""
+        if not default_name:
+            default_name = self.metadata_form.metadata().uid.strip()
+        if not default_name:
+            default_name = self.metadata_form.title_input.text().strip()
+        if not default_name:
+            default_name = "technocops_dtbook_output"
+        return "".join(character if character.isalnum() or character in {"_", "-"} else "_" for character in default_name)
+
+    def _build_auto_output_path(self, default_name: str) -> Path | None:
+        source_path = self._current_output_source_path()
+        if source_path is None:
+            return None
+
+        output_dir = source_path.parent
+        if not (source_path.suffix.lower() == ".xml" and output_dir.name.lower() == "output"):
+            output_dir = output_dir / "output"
+        return output_dir / f"{default_name}.xml"
+
+    def _current_output_source_path(self) -> Path | None:
+        if self.xml_source_path is not None:
+            return self.xml_source_path
+        if not self.documents:
+            return None
+        return self._preferred_output_source_path(self.documents[0])
+
+    @staticmethod
+    def _preferred_output_source_path(document: InputDocument) -> Path:
+        origin_value = (document.origin or "").strip()
+        if origin_value:
+            origin_path = Path(origin_value)
+            if origin_path.suffix.lower() == ".zip":
+                return origin_path
+        return document.path
+
     def start_conversion(self) -> None:
         if not self.documents:
             QMessageBox.warning(self, APP_NAME, "Add at least one HTML file before starting the conversion.")
@@ -562,6 +601,7 @@ class MainWindow(QMainWindow):
 
         self.last_result = None
         self.base_result = None
+        self.xml_source_path = None
         self.save_button.setEnabled(False)
         self.xml_preview.clear()
         self.logs_preview.setPlainText("Conversion started...\n")
@@ -601,6 +641,7 @@ class MainWindow(QMainWindow):
         self.base_result = result
         self.last_result = result
         self.xml_source_label = "Current source: generated XML from the latest conversion."
+        self.xml_source_path = self._preferred_output_source_path(self.documents[0]) if self.documents else None
         self.progress_bar.setValue(100)
         self.progress_label.setText("Conversion completed.")
         self.xml_preview.setPlainText(result.xml_text)
@@ -620,6 +661,7 @@ class MainWindow(QMainWindow):
         self.base_result = None
         self.last_result = None
         self.xml_source_label = ""
+        self.xml_source_path = None
         self.progress_bar.setValue(0)
         self.progress_label.setText("Conversion failed.")
         self.logs_preview.setPlainText(f"Conversion failed:\n{message}")
@@ -652,36 +694,31 @@ class MainWindow(QMainWindow):
             )
             return
 
-        default_name = self.conversion_service.extract_uid_from_xml(self.last_result.xml_text)
-        if not default_name:
-            default_name = self.metadata_form.metadata().uid.strip()
-        if not default_name:
-            default_name = self.metadata_form.title_input.text().strip()
-        if not default_name:
-            default_name = "technocops_dtbook_output"
-        default_name = "".join(character if character.isalnum() or character in {"_", "-"} else "_" for character in default_name)
-        target_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save DTBook XML",
-            f"{default_name}.xml",
-            "XML Files (*.xml)",
-        )
-        if not target_path:
+        target_path = self._build_auto_output_path(self._default_output_name())
+        if target_path is None:
+            QMessageBox.warning(
+                self,
+                APP_NAME,
+                "Unable to determine the source folder for saving the XML output.",
+            )
             return
 
-        saved_output = self.conversion_service.save_output(Path(target_path), self.last_result)
+        saved_output = self.conversion_service.save_output(target_path, self.last_result)
         self.statusBar().showMessage(f"Saved XML to {saved_output.xml_path}")
-        image_message = ""
+        details = [
+            "Output saved successfully.",
+            "",
+            f"Output Folder: {saved_output.output_dir}",
+            f"XML: {saved_output.xml_path}",
+        ]
+        if saved_output.text_report_path is not None:
+            details.append(f"Text Report: {saved_output.text_report_path}")
         if saved_output.image_output_dir is not None:
-            image_message = f"\nImage Folder: {saved_output.image_output_dir}"
+            details.append(f"Image Folder: {saved_output.image_output_dir}")
         QMessageBox.information(
             self,
             APP_NAME,
-            "Output saved successfully.\n\n"
-            f"XML: {saved_output.xml_path}\n"
-            f"JSON Report: {saved_output.json_report_path}\n"
-            f"Text Report: {saved_output.text_report_path}"
-            f"{image_message}",
+            "\n".join(details),
         )
 
     def check_for_updates_silent(self) -> None:
@@ -839,6 +876,7 @@ class MainWindow(QMainWindow):
         self.base_result = ConversionResult(xml_text=xml_text, issues=[], image_assets=[])
         self.last_result = self.base_result
         self.xml_source_label = f"Current source: loaded XML ({Path(xml_path).name})."
+        self.xml_source_path = Path(xml_path)
         self.xml_preview.setPlainText(xml_text)
         self.logs_preview.setPlainText(
             "XML file loaded for ID-only finalization.\n"

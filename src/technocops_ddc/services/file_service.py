@@ -39,7 +39,7 @@ class InputCollectionService:
             key=lambda path: natural_sort_key(str(path.relative_to(extraction_root))),
         )
         return InputBatch(
-            documents=self._build_documents(html_files),
+            documents=self._build_documents(html_files, origin_path=archive_path),
             source_label=f"ZIP: {archive_path.name}",
             temporary_directory=temp_dir,
         )
@@ -53,8 +53,8 @@ class InputCollectionService:
         return path.is_file() and path.suffix.lower() == ".zip"
 
     @staticmethod
-    def _build_documents(paths: list[Path]) -> list[InputDocument]:
+    def _build_documents(paths: list[Path], origin_path: Path | None = None) -> list[InputDocument]:
         return [
-            InputDocument(path=path, order=index, origin=str(path.parent))
+            InputDocument(path=path, order=index, origin=str(origin_path or path.parent))
             for index, path in enumerate(paths, start=1)
         ]

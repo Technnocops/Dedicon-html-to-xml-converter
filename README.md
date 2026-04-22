@@ -91,7 +91,7 @@ The app checks the latest GitHub release and can download and launch a packaged 
 - The application performs XML well-formedness checks.
 - It validates required DTBook structural elements and metadata.
 - It uses the bundled `assets/dtd/dtbook-basic.dtd` file for basic DTD validation.
-- Validation issues are shown in the logs panel and written to `.report.txt` and `.report.json`.
+- Validation issues are shown in the logs panel and written to `.report.txt`.
 
 ## Packaging Note
 

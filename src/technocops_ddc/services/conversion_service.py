@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import json
 import re
 import shutil
 from pathlib import Path
@@ -41,12 +39,9 @@ class ConversionService:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(result.xml_text, encoding="utf-8")
 
-        report_payload = self.build_error_report(result)
-        json_report_path = destination.with_suffix(".report.json")
         text_report_path = destination.with_suffix(".report.txt")
         image_output_dir: Path | None = None
 
-        json_report_path.write_text(json.dumps(report_payload, indent=2), encoding="utf-8")
         text_report_path.write_text(self._build_text_report(result.issues), encoding="utf-8")
 
         if result.image_assets:
@@ -58,7 +53,6 @@ class ConversionService:
 
         return SavedOutput(
             xml_path=destination,
-            json_report_path=json_report_path,
             text_report_path=text_report_path,
             image_output_dir=image_output_dir,
         )

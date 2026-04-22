@@ -665,9 +665,21 @@ class DTBookConverter:
                 )
             )
 
-        if not any(self._tag_name(child) == "img" for child in image_group):
-            etree.SubElement(image_group, "img", src=f"img/{output_name}", alt="afbeelding")
+        image_element = self._ensure_figure_image(image_group)
+        image_element.set("src", f"img/{output_name}")
+        image_element.set("alt", "afbeelding")
         return image_group
+
+    def _ensure_figure_image(self, image_group: etree._Element) -> etree._Element:
+        for child in image_group:
+            if self._tag_name(child) == "img":
+                image_group.remove(child)
+                image_group.insert(0, child)
+                return child
+
+        image_element = etree.Element("img")
+        image_group.insert(0, image_element)
+        return image_element
 
     def _resolve_image_source_path(self, raw_source: str, context: ConversionContext) -> Path | None:
         if not raw_source:
@@ -1259,30 +1271,38 @@ class DTBookConverter:
         if len(image_nodes) != 1:
             return False
 
-        caption_source = next(
-            (
-                child
-                for child in direct_children
-                if self._tag_name(child) in {"figcaption", "caption", "p"} and self._is_caption_candidate(child)
-            ),
-            None,
-        )
-
         image_group = self._convert_image_group(image_nodes[0], parent, context)
-        if caption_source is not None:
-            caption = etree.SubElement(image_group, "caption")
-            paragraph = etree.SubElement(caption, "p")
-            emphasis = etree.SubElement(paragraph, "em")
-            self._append_inline_content(emphasis, caption_source, context, strip_markup_tokens=True)
-            if not self._has_meaningful_content(emphasis):
-                paragraph.remove(emphasis)
+        caption_sources = [
+            child
+            for child in direct_children
+            if self._tag_name(child) in {"figcaption", "caption", "p"} and self._is_caption_candidate(child)
+        ]
+        for caption_source in caption_sources:
+            self._append_figure_caption_candidate(image_group, caption_source, context)
         return True
 
     def _ensure_figure_caption(self, image_group: etree._Element) -> etree._Element:
         for child in image_group:
             if self._tag_name(child) == "caption":
                 return child
-        return etree.SubElement(image_group, "caption")
+        caption = etree.Element("caption")
+        insert_at = 1 if len(image_group) and self._tag_name(image_group[0]) == "img" else len(image_group)
+        image_group.insert(insert_at, caption)
+        return caption
+
+    def _append_figure_caption_candidate(
+        self,
+        image_group: etree._Element,
+        caption_source: etree._Element,
+        context: ConversionContext,
+    ) -> None:
+        caption = self._ensure_figure_caption(image_group)
+        paragraph = etree.SubElement(caption, "p")
+        self._append_inline_content(paragraph, caption_source, context, strip_markup_tokens=True)
+        if not self._has_meaningful_content(paragraph):
+            caption.remove(paragraph)
+            if not len(caption):
+                image_group.remove(caption)
 
     def _close_active_figure(self, context: ConversionContext) -> None:
         figure = context.active_figure

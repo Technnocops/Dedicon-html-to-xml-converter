@@ -231,9 +231,12 @@ class ConversionResult:
 @dataclass(slots=True)
 class SavedOutput:
     xml_path: Path
-    json_report_path: Path
-    text_report_path: Path
+    text_report_path: Path | None = None
     image_output_dir: Path | None = None
+
+    @property
+    def output_dir(self) -> Path:
+        return self.xml_path.parent
 
 
 @dataclass(slots=True)

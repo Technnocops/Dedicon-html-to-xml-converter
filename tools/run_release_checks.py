@@ -82,6 +82,9 @@ def run_ui_smoke_test() -> None:
     assert window.metadata_form.title_input.text() == "", "Metadata reset should clear the previous document title."
     assert window.metadata_form.publisher_input.text() == "Dedicon", "Publisher should remain fixed after metadata reset."
     assert window.metadata_dialog.clean_button.text() == "Clean Metadata", "Metadata dialog should expose a clean button."
+    window.xml_source_path = PROJECT_ROOT / "tmp_release_checks" / "sample.htm"
+    auto_output_path = window._build_auto_output_path("374388")
+    assert auto_output_path == PROJECT_ROOT / "tmp_release_checks" / "output" / "374388.xml", "Save XML should target an auto-created output folder beside the source file."
     window.close()
     print("[release-check] UI smoke test passed")
 
@@ -96,7 +99,7 @@ def run_conversion_smoke_test() -> None:
     try:
         html_path = temp_root / "sample.htm"
         image_path = temp_root / "sample.jpg"
-        output_path = temp_root / "output.xml"
+        output_path = temp_root / "output" / "output.xml"
 
         image_path.write_bytes(b"\xff\xd8\xff\xd9")
         html_path.write_text(
@@ -180,8 +183,10 @@ def run_conversion_smoke_test() -> None:
         assert 'colspan=' not in xml_text and 'rowspan=' not in xml_text, "Table span attributes should be removed."
 
         assert saved_output.xml_path.exists(), "Converted XML file was not written."
-        assert saved_output.json_report_path.exists(), "JSON report was not written."
+        assert saved_output.output_dir.exists(), "Output folder was not created automatically."
+        assert saved_output.output_dir == temp_root / "output", "Converted XML should be saved inside the output folder."
         assert saved_output.text_report_path.exists(), "Text report was not written."
+        assert not output_path.with_suffix(".report.json").exists(), "JSON report should no longer be generated."
         assert saved_output.image_output_dir is not None and any(saved_output.image_output_dir.iterdir()), "Image assets were not copied."
         assert not result.has_critical_errors, "Conversion smoke test produced critical errors."
 
@@ -311,6 +316,52 @@ def run_conversion_smoke_test() -> None:
             "<imggroup>\n<img src=\"img/cover.jpg\" alt=\"afbeelding\"/>\n<caption>\n<p><em>Een luipaard of een lui paard? Sommige</em></p>\n<p><em>Nederlandse samenstellingen zijn eigenlijk best gek.</em></p>\n</caption>\n</imggroup>"
             in figure_marker_result.xml_text
         ), "Marker-based figure captions should stay inside the imggroup caption block."
+
+        figure_caption_first_html = temp_root / "figure-caption-first.htm"
+        figure_caption_first_html.write_text(
+            """
+            <html><body>
+              <p><span class="font1">&lt;fig&gt;</span></p>
+              <div>
+                <p><span class="font13" style="font-style:italic;">Caption line before image.</span></p>
+                <p><span class="font13" style="font-style:italic;">Second caption line before image.</span></p>
+                <div><img src="sample.jpg" alt="" style="width:52pt;height:25pt;"/></div>
+                <p><span class="font1">&lt;/fig&gt;</span></p>
+              </div>
+            </body></html>
+            """,
+            encoding="utf-8",
+        )
+        figure_caption_first_result = service.convert(
+            [InputDocument(path=figure_caption_first_html, order=1, origin=str(temp_root))],
+            metadata,
+        )
+        figure_caption_first_root = etree.fromstring(figure_caption_first_result.xml_text.encode("utf-8"))
+        figure_group = figure_caption_first_root.xpath(".//*[local-name()='imggroup']")[0]
+        assert [child.tag.split('}', 1)[-1] for child in figure_group[:2]] == ["img", "caption"], "Figure output should always place the image before its captions."
+        assert "Caption line before image." in figure_caption_first_result.xml_text and "Second caption line before image." in figure_caption_first_result.xml_text, "Caption text should be preserved when reordered."
+
+        figure_container_html = temp_root / "figure-container.htm"
+        figure_container_html.write_text(
+            """
+            <html><body>
+              <div>
+                <p><span style="font-style:italic;">Caption appears before the image.</span></p>
+                <img src="sample.jpg" alt=""/>
+                <p><span style="font-style:italic;">Caption stays after the image in XML.</span></p>
+              </div>
+            </body></html>
+            """,
+            encoding="utf-8",
+        )
+        figure_container_result = service.convert(
+            [InputDocument(path=figure_container_html, order=1, origin=str(temp_root))],
+            metadata,
+        )
+        assert (
+            "<imggroup>\n<img src=\"img/cover.jpg\" alt=\"afbeelding\"/>\n<caption>\n<p><em>Caption appears before the image.</em></p>\n<p><em>Caption stays after the image in XML.</em></p>\n</caption>\n</imggroup>"
+            in figure_container_result.xml_text
+        ), "Figure-like containers should normalize the image before all caption paragraphs."
 
         id_finalizer_xml = service.finalize_xml_ids(
             """<?xml version="1.0" encoding="utf-8"?>
