@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-powershell -ExecutionPolicy Bypass -File "%~dp0tools\publish_github_release.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\publish_github_release.ps1"
 if errorlevel 1 (
   echo.
   echo Release failed.
