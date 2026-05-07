@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 
 from technocops_ddc.models import (
     AuthorEntry,
+    DEFAULT_PRODUCER,
     DOCUMENT_TYPE_OPTIONS,
     DTBookMetadata,
     FIXED_PUBLISHER,
@@ -80,7 +81,7 @@ class MetadataForm(QWidget):
         self.identifier_input = QLineEdit()
         self.source_input = QLineEdit()
         self.source_publisher_input = QLineEdit()
-        self.producer_input = QLineEdit()
+        self.producer_input = QLineEdit(DEFAULT_PRODUCER)
         self.doc_type_input = QComboBox()
         self.doc_type_input.addItem("Select document type", "")
         for label, value in DOCUMENT_TYPE_OPTIONS:
@@ -93,7 +94,7 @@ class MetadataForm(QWidget):
         self.publisher_input.setPlaceholderText("Dedicon")
         self.source_input.setPlaceholderText("Please enter ISBN")
         self.source_publisher_input.setPlaceholderText("Please enter Source Publisher")
-        self.producer_input.setPlaceholderText("Continuum Content Solutions")
+        self.producer_input.setPlaceholderText(DEFAULT_PRODUCER)
         self.language_input.setPlaceholderText("Please enter language code (example: nl)")
         self._configure_input_sizes()
         self._connect_field_signals()
@@ -114,6 +115,7 @@ class MetadataForm(QWidget):
 
         self.generate_ids_button = QPushButton("Generate IDs")
         self.generate_ids_button.setProperty("variant", "secondary")
+        self.generate_ids_button.setProperty("state", "idle")
         self.generate_ids_button.clicked.connect(lambda _checked=False: self.generate_ids())
 
         identity_form = QFormLayout()
@@ -181,19 +183,20 @@ class MetadataForm(QWidget):
         )
         if not generated_uid:
             self.generate_ids_button.setText("Load a file first")
-            self.generate_ids_button.setEnabled(False)
+            self.generate_ids_button.setProperty("state", "warning")
+            self._refresh_button_style(self.generate_ids_button)
             QTimer.singleShot(1200, self._reset_generate_button)
             return
         self.uid_input.setText(generated_uid)
         self.identifier_input.setText(generated_uid)
-        if self.generate_ids_button.text() != "IDs Generated":
-            self.generate_ids_button.setText("IDs Generated")
-        self.generate_ids_button.setEnabled(False)
-        QTimer.singleShot(1200, self._reset_generate_button)
+        self.generate_ids_button.setText("IDs Generated")
+        self.generate_ids_button.setProperty("state", "success")
+        self._refresh_button_style(self.generate_ids_button)
         self.metadataChanged.emit()
 
     def apply_document_defaults(self, first_document_name: str) -> None:
         self.document_hint = first_document_name
+        self._reset_generate_button()
 
     def apply_detected_language(self, language_code: str) -> None:
         normalized = language_code.strip().lower()
@@ -225,12 +228,13 @@ class MetadataForm(QWidget):
         self.language_input.clear()
         self.source_input.clear()
         self.source_publisher_input.clear()
-        self.producer_input.clear()
+        self.producer_input.setText(DEFAULT_PRODUCER)
         self.publisher_input.setText(FIXED_PUBLISHER)
         self.doc_type_input.setCurrentIndex(0)
         today = QDate.currentDate()
         self.completion_date_input.setDate(today)
         self.produced_date_input.setDate(today)
+        self._reset_generate_button()
 
         while len(self.author_rows) > 1:
             row = self.author_rows.pop()
@@ -295,7 +299,8 @@ class MetadataForm(QWidget):
 
     def _reset_generate_button(self) -> None:
         self.generate_ids_button.setText("Generate IDs")
-        self.generate_ids_button.setEnabled(True)
+        self.generate_ids_button.setProperty("state", "idle")
+        self._refresh_button_style(self.generate_ids_button)
 
     def _refresh_author_rows(self) -> None:
         for index, row in enumerate(self.author_rows, start=1):
@@ -339,6 +344,12 @@ class MetadataForm(QWidget):
         if first_token.isdigit():
             return first_token
         return ""
+
+    @staticmethod
+    def _refresh_button_style(button: QPushButton) -> None:
+        button.style().unpolish(button)
+        button.style().polish(button)
+        button.update()
 
 
 class AuthorRowWidget(QWidget):

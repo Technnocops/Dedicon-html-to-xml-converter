@@ -21,9 +21,51 @@ from technocops_ddc.models import (
 DTBOOK_NAMESPACE = "http://www.daisy.org/z3986/2005/dtbook/"
 SCHEMATRON_HREF = "https://epubshowcase.dedicontest.nl/schematron/dtbook-ext.sch"
 SCHEMATRON_NAMESPACE = "http://purl.oclc.org/dsdl/schematron"
-BLOCK_MARKER_TAG_PATTERN = r"(?:page|pm|hsd\d*|sd|ol|ul|fig)"
+BLOCK_MARKER_TAG_PATTERN = r"(?:page|pm|bl|ft|hsd\d*|sd|ol|ul|fig|img)"
 INLINE_OUTPUT_TAGS = {"strong", "em", "linenum"}
 INLINE_FORMATTING_TAGS = INLINE_OUTPUT_TAGS | {"b", "i", "span"}
+INLINE_PRESERVE_HINT_TAGS = {
+    "a",
+    "abbr",
+    "acronym",
+    "b",
+    "bdi",
+    "bdo",
+    "big",
+    "button",
+    "cite",
+    "code",
+    "data",
+    "del",
+    "dfn",
+    "em",
+    "i",
+    "img",
+    "ins",
+    "kbd",
+    "label",
+    "mark",
+    "meter",
+    "object",
+    "output",
+    "picture",
+    "progress",
+    "q",
+    "ruby",
+    "rp",
+    "rt",
+    "s",
+    "samp",
+    "small",
+    "span",
+    "strong",
+    "sub",
+    "sup",
+    "time",
+    "u",
+    "var",
+    "wbr",
+}
 FIXED_LINE_BREAK_REPLACEMENTS = (
     ("<p>\n<strong>", "<p><strong>"),
     ("<p>\n<em>", "<p><em>"),
@@ -40,8 +82,16 @@ FIXED_LINE_BREAK_REPLACEMENTS = (
     ("</em>\n</strong>", "</em></strong>"),
     ("</em>\n</line>", "</em></line>"),
     ("</em>\n</p>", "</em></p>"),
+    ("</sup>\n</p>", "</sup></p>"),
+    ("</sup>\n</line>", "</sup></line>"),
+    ("</sub>\n</p>", "</sub></p>"),
+    ("</sub>\n</line>", "</sub></line>"),
     ("<td>\n<strong>", "<td><strong>"),
     ("</strong>\n</td>", "</strong></td>"),
+    ("</em>\n<sup>", "</em><sup>"),
+    ("</em>\n<sub>", "</em><sub>"),
+    ("</strong>\n<sup>", "</strong><sup>"),
+    ("</strong>\n<sub>", "</strong><sub>"),
 )
 PARAGRAPH_MERGE_PREFIXES = {
     "a",
@@ -77,16 +127,72 @@ PAGE_MARKER_PATTERN = re.compile(r"(?is)<page>\s*([^<]*?)\s*</page>")
 LINE_NUMBER_PATTERN = re.compile(r"(\[\s*\d+\s*\])")
 SPECIAL_MARKER_VALUES = {"T1", "T2", "I", "R"}
 VOID_TAGS = {"br"}
+HTML_VOID_PRESERVE_TAGS = {"area", "base", "col", "embed", "input", "link", "meta", "param", "source", "track", "wbr"}
 TABLE_SECTION_TAGS = {"thead", "tbody", "tfoot", "tr", "td", "th", "caption", "colgroup", "col"}
+BLOCK_PRESERVE_HINT_TAGS = {
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "body",
+    "caption",
+    "colgroup",
+    "dd",
+    "details",
+    "dialog",
+    "div",
+    "dl",
+    "dt",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "head",
+    "header",
+    "hgroup",
+    "hr",
+    "html",
+    "legend",
+    "li",
+    "main",
+    "menu",
+    "nav",
+    "ol",
+    "p",
+    "pre",
+    "section",
+    "summary",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "tr",
+    "ul",
+}
 BLOCK_MARKER_PATTERN = re.compile(rf"^\s*<(?P<closing>/)?(?P<tag>{BLOCK_MARKER_TAG_PATTERN})>\s*$", re.IGNORECASE)
+LEADING_BLOCK_MARKER_PATTERN = re.compile(rf"^\s*<(?P<closing>/)?(?P<tag>{BLOCK_MARKER_TAG_PATTERN})>\s*", re.IGNORECASE)
+HR_MARKER_PATTERN = re.compile(r"^\s*<hr\s*/>\s*$", re.IGNORECASE)
+LEADING_HR_MARKER_PATTERN = re.compile(r"^\s*<hr\s*/>\s*", re.IGNORECASE)
 HEADING_MARKER_PATTERN = re.compile(r"^\s*<h(?P<level>[1-6])>\s*(?P<text>.*?)\s*</h(?P=level)>\s*$", re.IGNORECASE | re.DOTALL)
+HEADING_WRAPPER_SEARCH_PATTERN = re.compile(r"<h(?P<level>[1-6])>\s*(?P<text>.*?)\s*</h(?P=level)>", re.IGNORECASE | re.DOTALL)
 HEADING_TOKEN_PATTERN = re.compile(r"<h(?P<level>[1-6])>", re.IGNORECASE)
+OPEN_HEADING_FRAGMENT_PATTERN = re.compile(r"^\s*<h(?P<level>[1-6])>\s*(?P<text>.*?)\s*$", re.IGNORECASE | re.DOTALL)
+HEADING_CLOSING_TOKEN_PATTERN = re.compile(r"</h(?P<level>[1-6])>\s*$", re.IGNORECASE)
+DOCUMENT_RANGE_PATTERN = re.compile(r"_(?P<start>\d+)-(?P<end>\d+)$")
 SIDEBAR_HEADING_PATTERN = re.compile(r"^\s*<(?P<tag>hsd\d*|sd)>\s*(?P<text>.*?)\s*$", re.IGNORECASE | re.DOTALL)
-MARKUP_TOKEN_PATTERN = re.compile(rf"</?(?:{BLOCK_MARKER_TAG_PATTERN}|figure|fig|h[1-6])\s*>", re.IGNORECASE)
+MARKUP_TOKEN_PATTERN = re.compile(rf"(?:</?(?:{BLOCK_MARKER_TAG_PATTERN}|figure|fig|h[1-6])\s*>|<hr\s*/>)", re.IGNORECASE)
+SEMANTIC_TOKEN_TEXT_PATTERN = re.compile(rf"</?(?:{BLOCK_MARKER_TAG_PATTERN}|figure|h[1-6])>|<hr\s*/>", re.IGNORECASE)
+OPEN_PAGE_MARKER_PATTERN = re.compile(r"^\s*<page>\s*", re.IGNORECASE | re.DOTALL)
+INLINE_PAGE_MARKER_PATTERN = re.compile(r"(?is)<page>\s*(?P<content>[^<]*?)\s*</page>|<page>")
+TRAILING_CLOSING_BLOCK_MARKER_PATTERN = re.compile(r"\s*</(?P<tag>ft|pm|bl|sd|hsd\d*|fig|img|ol|ul)>\s*$", re.IGNORECASE)
 BRACKET_PAIRS = {"(": ")", "[": "]", "{": "}", "<": ">"}
 OPENING_BRACKETS = set(BRACKET_PAIRS)
 CLOSING_BRACKETS = set(BRACKET_PAIRS.values())
 REVERSE_BRACKET_PAIRS = {value: key for key, value in BRACKET_PAIRS.items()}
+INTERNAL_PRESERVED_ATTR = "_tc_preserved"
 
 
 @dataclass
@@ -100,16 +206,30 @@ class ConversionContext:
     sidebar_stack: list[etree._Element] = field(default_factory=list)
     list_stack: list[etree._Element] = field(default_factory=list)
     list_item_stack: list[etree._Element | None] = field(default_factory=list)
+    active_poem: etree._Element | None = None
     active_linegroup: etree._Element | None = None
+    active_blockquote: etree._Element | None = None
+    active_footnote: etree._Element | None = None
+    active_footnote_sequence: int | None = None
     active_figure: etree._Element | None = None
+    active_figure_line: int | None = None
+    active_figure_marker_tag: str = ""
+    pending_split_heading_level: int | None = None
+    pending_split_heading_text: str = ""
+    pending_split_heading_line: int | None = None
     current_page_number: str = ""
     page_counter: int = 0
+    footnote_counter: int = 0
+    footnote_symbol_counter: int = 0
     level_counter: int = 0
     page_image_counter: dict[str, int] = field(default_factory=dict)
     used_output_names: set[str] = field(default_factory=set)
     book_id: str = ""
     page_range: PageRangeSelection | None = None
     detected_pages: set[int] = field(default_factory=set)
+    pending_precedingemptyline: bool = False
+    preserved_tag_reports: set[tuple[str, str]] = field(default_factory=set)
+    dropped_text_reports: set[tuple[str, int | None, str, str]] = field(default_factory=set)
 
     @property
     def active_parent(self) -> etree._Element:
@@ -117,7 +237,13 @@ class ConversionContext:
 
     @property
     def base_parent(self) -> etree._Element:
-        return self.sidebar_stack[-1] if self.sidebar_stack else self.active_parent
+        if self.active_footnote is not None:
+            return self.active_footnote
+        if self.sidebar_stack:
+            return self.sidebar_stack[-1]
+        if self.active_blockquote is not None:
+            return self.active_blockquote
+        return self.active_parent
 
     @property
     def current_list_item(self) -> etree._Element | None:
@@ -157,10 +283,15 @@ class ConversionContext:
 
 class DTBookConverter:
     KNOWN_CUSTOM_TAG_WARNINGS = {
+        "tag bl invalid",
+        "tag ft invalid",
         "tag pm invalid",
         "tag page invalid",
+        "tag sd invalid",
         "tag hsd invalid",
         "tag fig invalid",
+        "unexpected end tag : bl",
+        "unexpected end tag : ft",
         "unexpected end tag : fig",
     }
 
@@ -195,12 +326,18 @@ class DTBookConverter:
             page_counter=(page_range.start_page - 1) if page_range is not None else 0,
         )
         total_files = max(len(documents), 1)
+        previous_document_range: tuple[int, int] | None = None
 
         for index, document in enumerate(documents, start=1):
             context.current_file = document.name
             context.current_document_path = document.path
             if progress_callback:
                 progress_callback(self._progress_value(index - 1, total_files), f"Parsing {document.name}")
+
+            current_document_range = self._extract_document_page_range(document)
+            reset_for_document_gap = self._should_reset_for_document_gap(previous_document_range, current_document_range)
+            if reset_for_document_gap:
+                self._reset_document_state_for_new_sequence(context)
 
             raw_html = self._read_html(document.path)
             prepared_html = self._prepare_source_markup(raw_html)
@@ -223,7 +360,10 @@ class DTBookConverter:
             source_body = parsed.find("body")
             if source_body is None:
                 source_body = parsed
+            if not self._document_contains_any_heading(source_body) and not context.level_stack:
+                self._open_dummy_root_level(context)
             self._convert_container(source_body, context)
+            previous_document_range = current_document_range
 
             if progress_callback:
                 progress_callback(self._progress_value(index, total_files), f"Converted {document.name}")
@@ -235,6 +375,7 @@ class DTBookConverter:
         self._renumber_levels(root)
         self._normalize_output_tree(root)
         self._cleanup_empty_elements(root)
+        self._clear_internal_preservation_markers(root)
         xml_text = self._build_xml_text(root)
         return ConversionResult(xml_text=xml_text, issues=context.issues, image_assets=context.image_assets)
 
@@ -272,7 +413,7 @@ class DTBookConverter:
     @staticmethod
     def _build_xml_text(root: etree._Element) -> str:
         xml_body = etree.tostring(root, pretty_print=False, encoding="unicode")
-        xml_body = re.sub(r">\s*<", ">\n<", xml_body).strip() + "\n"
+        xml_body = xml_body.replace("><", ">\n<").strip() + "\n"
         xml_body = DTBookConverter._normalize_xml_line_breaks(xml_body)
         return (
             '<?xml version="1.0" encoding="utf-8"?>\n'
@@ -286,6 +427,10 @@ class DTBookConverter:
         normalized = re.sub(r"</strong>\s*<strong>", " ", xml_body)
         for source, target in FIXED_LINE_BREAK_REPLACEMENTS:
             normalized = normalized.replace(source, target)
+        normalized = re.sub(r"(<a\b[^>]*>)\n(<(?:strong|em|sup|sub)>)", r"\1\2", normalized)
+        normalized = re.sub(r"(</(?:strong|em|sup|sub)>)\n(</a>)", r"\1\2", normalized)
+        normalized = re.sub(r"(</(?:strong|em)>)\n(<(?:sup|sub)>)", r"\1\2", normalized)
+        normalized = re.sub(r"<caption>\s*</caption>", "<caption></caption>", normalized)
         return normalized
 
     @staticmethod
@@ -301,6 +446,57 @@ class DTBookConverter:
     @staticmethod
     def _prepare_source_markup(raw_html: str) -> str:
         return raw_html.replace("\r\n", "\n")
+
+    @staticmethod
+    def _extract_document_page_range(document: InputDocument) -> tuple[int, int] | None:
+        match = DOCUMENT_RANGE_PATTERN.search(document.path.stem)
+        if match is None:
+            return None
+        return (int(match.group("start")), int(match.group("end")))
+
+    @staticmethod
+    def _should_reset_for_document_gap(
+        previous_document_range: tuple[int, int] | None,
+        current_document_range: tuple[int, int] | None,
+    ) -> bool:
+        if previous_document_range is None or current_document_range is None:
+            return False
+        return current_document_range[0] > previous_document_range[1] + 1
+
+    def _reset_document_state_for_new_sequence(self, context: ConversionContext) -> None:
+        self._close_active_poem(context)
+        self._close_active_blockquote(context)
+        self._close_active_footnote(context)
+        self._close_active_figure(context)
+        self._close_open_lists(context)
+        context.level_stack.clear()
+        context.sidebar_stack.clear()
+        context.active_poem = None
+        context.active_linegroup = None
+        context.active_blockquote = None
+        context.active_footnote = None
+        context.active_footnote_sequence = None
+        context.active_figure = None
+        context.active_figure_line = None
+        context.active_figure_marker_tag = ""
+        context.pending_split_heading_level = None
+        context.pending_split_heading_text = ""
+        context.pending_split_heading_line = None
+
+    def _document_contains_any_heading(self, source_body: etree._Element) -> bool:
+        for node in source_body.iter():
+            tag = self._tag_name(node)
+            if not tag:
+                continue
+            if re.fullmatch(r"h[1-6]", tag):
+                return True
+            if HEADING_WRAPPER_SEARCH_PATTERN.search(self._normalized_paragraph_text(node)):
+                return True
+        return False
+
+    def _open_dummy_root_level(self, context: ConversionContext) -> None:
+        level = context.open_level(1)
+        etree.SubElement(level, "h1")
 
     @staticmethod
     def _parse_numeric_page(value: str) -> int | None:
@@ -367,7 +563,7 @@ class DTBookConverter:
         if tag in {"html", "body", "div"}:
             if context.active_figure is None and self._convert_figure_like_container(source_node, parent, context):
                 return
-            self._convert_container(source_node, context, destination_parent=parent)
+            self._convert_container(source_node, context, destination_parent=destination_parent)
             return
 
         if tag in {"style", "script", "head", "title"}:
@@ -376,12 +572,19 @@ class DTBookConverter:
         if tag in VOID_TAGS:
             return
 
-        if tag == "a" and source_node.get("name"):
+        if tag == "a" and source_node.get("name") and not source_node.get("href"):
             self._append_inline_content(parent, source_node, context, strip_markup_tokens=True)
             return
 
         if tag == "page":
             self._append_pagenum(context.base_parent, "".join(source_node.itertext()).strip(), context)
+            return
+
+        if tag == "hr":
+            context.pending_precedingemptyline = True
+            return
+
+        if self._try_complete_pending_split_heading(source_node, context):
             return
 
         if re.fullmatch(r"h[1-6]", tag):
@@ -398,7 +601,9 @@ class DTBookConverter:
 
         if tag == "img":
             image_parent = context.active_figure if context.active_figure is not None else parent
-            self._convert_image_group(source_node, image_parent, context)
+            image_group = self._convert_image_group(source_node, image_parent, context)
+            if context.active_figure is None:
+                self._ensure_image_group_accessibility_placeholders(image_group)
             return
 
         if tag == "table":
@@ -409,69 +614,168 @@ class DTBookConverter:
             self._convert_pm_block(source_node, parent, context)
             return
 
-        if tag == "hsd":
+        if tag == "ft":
+            self._convert_footnote_block(source_node, parent, context)
+            return
+
+        if tag in {"hsd", "sd"}:
             self._convert_sidebar(source_node, parent, context)
+            return
+
+        if tag == "bl":
+            self._convert_blockquote(source_node, parent, context)
             return
 
         if tag in {"figure", "fig"} and context.active_figure is None and self._convert_figure_like_container(source_node, parent, context):
             return
 
-        context.issues.append(
-            ConversionIssue(
-                severity=Severity.WARNING,
-                message=f"Unsupported element <{tag}> was flattened into the DTBook output.",
-                file_name=context.current_file,
-                line=source_node.sourceline,
-                tag=tag,
-                code="unsupported-element",
-            )
-        )
-        self._convert_container(source_node, context, destination_parent=parent)
+        self._preserve_block_source_element(parent, source_node, context, strip_markup_tokens=True)
 
-    def _convert_paragraph(self, source_node: etree._Element, context: ConversionContext) -> None:
-        paragraph_text = self._normalized_paragraph_text(source_node)
-        heading_match = HEADING_MARKER_PATTERN.match(paragraph_text)
-        if heading_match:
-            self._convert_heading_from_paragraph(source_node, int(heading_match.group("level")), context)
+    def _convert_paragraph(
+        self,
+        source_node: etree._Element,
+        context: ConversionContext,
+        *,
+        normalized_text: str | None = None,
+        consume_leading_markers: bool = True,
+        convert_inline_page_markers_override: bool | None = None,
+    ) -> None:
+        paragraph_text = normalized_text if normalized_text is not None else self._normalized_paragraph_text(source_node)
+        leading_markers_consumed = False
+        if self._starts_semantic_heading_after_leading_markers(paragraph_text):
+            self._close_heading_boundary_contexts(context)
+        if consume_leading_markers:
+            paragraph_text, leading_markers_consumed = self._consume_leading_semantic_markers(
+                paragraph_text,
+                context,
+                source_line=source_node.sourceline,
+            )
+        paragraph_text, trailing_closing_markers = self._consume_trailing_closing_block_markers(paragraph_text)
+        if self._convert_semantic_heading(
+            source_node,
+            paragraph_text,
+            context,
+            convert_inline_page_markers=not leading_markers_consumed,
+        ):
+            self._apply_trailing_closing_markers(context, trailing_closing_markers, source_node.sourceline)
+            return
+
+        if not paragraph_text and not self._has_renderable_inline_content(source_node):
+            self._apply_trailing_closing_markers(context, trailing_closing_markers, source_node.sourceline)
+            return
+
+        if self._capture_split_heading_prefix(source_node, paragraph_text, context):
+            self._apply_trailing_closing_markers(context, trailing_closing_markers, source_node.sourceline)
+            return
+
+        if HR_MARKER_PATTERN.match(paragraph_text):
+            context.pending_precedingemptyline = True
+            self._apply_trailing_closing_markers(context, trailing_closing_markers, source_node.sourceline)
             return
 
         block_match = BLOCK_MARKER_PATTERN.match(paragraph_text)
         if block_match:
-            self._handle_block_marker(context, block_match.group("tag").lower(), bool(block_match.group("closing")))
+            self._handle_block_marker(
+                context,
+                block_match.group("tag").lower(),
+                bool(block_match.group("closing")),
+                source_line=source_node.sourceline,
+            )
+            self._apply_trailing_closing_markers(context, trailing_closing_markers, source_node.sourceline)
             return
+
+        convert_inline_page_markers = (
+            convert_inline_page_markers_override
+            if convert_inline_page_markers_override is not None
+            else not leading_markers_consumed
+        )
 
         if context.active_linegroup is not None:
             line = etree.SubElement(context.active_linegroup, "line")
-            self._append_inline_content(line, source_node, context, pm_mode=True, strip_markup_tokens=True)
+            self._append_inline_content(
+                line,
+                source_node,
+                context,
+                pm_mode=True,
+                strip_markup_tokens=True,
+                convert_inline_page_markers=convert_inline_page_markers,
+            )
             if not self._has_meaningful_content(line):
                 context.active_linegroup.remove(line)
+            self._apply_trailing_closing_markers(context, trailing_closing_markers, source_node.sourceline)
+            return
+
+        if context.active_footnote is not None:
+            self._assign_active_footnote_id(source_node, context)
+            paragraph = etree.SubElement(context.active_footnote, "p")
+            self._append_inline_content(
+                paragraph,
+                source_node,
+                context,
+                strip_markup_tokens=True,
+                convert_inline_page_markers=convert_inline_page_markers,
+            )
+            if not self._has_meaningful_content(paragraph):
+                self._report_dropped_source_text(source_node, context, reason="footnote content")
+                context.active_footnote.remove(paragraph)
+            self._apply_trailing_closing_markers(context, trailing_closing_markers, source_node.sourceline)
             return
 
         if context.active_figure is not None:
             caption_parent = self._ensure_figure_caption(context.active_figure)
             paragraph = etree.SubElement(caption_parent, "p")
-            self._append_inline_content(paragraph, source_node, context, strip_markup_tokens=True)
+            self._append_inline_content(
+                paragraph,
+                source_node,
+                context,
+                strip_markup_tokens=True,
+                convert_inline_page_markers=convert_inline_page_markers,
+            )
             if not self._has_meaningful_content(paragraph):
+                self._report_dropped_source_text(source_node, context, reason="figure caption content")
                 caption_parent.remove(paragraph)
                 if not len(caption_parent):
                     context.active_figure.remove(caption_parent)
+            self._apply_trailing_closing_markers(context, trailing_closing_markers, source_node.sourceline)
             return
 
         if context.list_stack:
             list_item = etree.SubElement(context.list_stack[-1], "li")
             context.list_item_stack[-1] = list_item
-            self._append_inline_content(list_item, source_node, context, strip_markup_tokens=True)
+            self._append_inline_content(
+                list_item,
+                source_node,
+                context,
+                strip_markup_tokens=True,
+                convert_inline_page_markers=convert_inline_page_markers,
+            )
             if not self._has_meaningful_content(list_item):
                 context.list_stack[-1].remove(list_item)
                 context.list_item_stack[-1] = None
+            self._apply_trailing_closing_markers(context, trailing_closing_markers, source_node.sourceline)
             return
 
-        paragraph = etree.SubElement(context.current_content_parent, "p")
-        self._append_inline_content(paragraph, source_node, context, strip_markup_tokens=True)
+        paragraph = self._create_paragraph(context.current_content_parent, context)
+        self._append_inline_content(
+            paragraph,
+            source_node,
+            context,
+            strip_markup_tokens=True,
+            convert_inline_page_markers=convert_inline_page_markers,
+        )
         if not self._has_meaningful_content(paragraph):
+            self._report_dropped_source_text(source_node, context, reason="paragraph content")
             context.current_content_parent.remove(paragraph)
+        self._apply_trailing_closing_markers(context, trailing_closing_markers, source_node.sourceline)
 
-    def _handle_block_marker(self, context: ConversionContext, tag: str, is_closing: bool) -> None:
+    def _handle_block_marker(
+        self,
+        context: ConversionContext,
+        tag: str,
+        is_closing: bool,
+        *,
+        source_line: int | None = None,
+    ) -> None:
         normalized_tag = tag.lower()
         if normalized_tag.startswith("hsd"):
             normalized_tag = "sd"
@@ -482,9 +786,16 @@ class DTBookConverter:
 
         if normalized_tag == "pm":
             if is_closing:
-                context.active_linegroup = None
+                self._close_active_poem(context)
             else:
-                context.active_linegroup = etree.SubElement(context.current_content_parent, "linegroup")
+                self._open_poem(context)
+            return
+
+        if normalized_tag == "ft":
+            if is_closing:
+                self._close_active_footnote(context)
+            elif context.active_footnote is None:
+                self._open_footnote(context)
             return
 
         if normalized_tag == "sd":
@@ -495,11 +806,20 @@ class DTBookConverter:
                 self._open_sidebar(context, move_previous_heading=True)
             return
 
-        if normalized_tag == "fig":
+        if normalized_tag == "bl":
+            if is_closing:
+                self._close_active_blockquote(context)
+            else:
+                context.active_blockquote = etree.SubElement(context.current_content_parent, "blockquote")
+            return
+
+        if normalized_tag in {"fig", "img"}:
             if is_closing:
                 self._close_active_figure(context)
             elif context.active_figure is None:
                 context.active_figure = etree.SubElement(context.current_content_parent, "imggroup")
+                context.active_figure_line = source_line
+                context.active_figure_marker_tag = normalized_tag
             return
 
         if normalized_tag in {"ol", "ul"}:
@@ -526,20 +846,40 @@ class DTBookConverter:
     def _convert_heading(self, source_node: etree._Element, context: ConversionContext) -> None:
         self._close_open_lists(context)
         heading_text = self._normalized_paragraph_text(source_node)
+        if self._starts_semantic_heading_after_leading_markers(heading_text):
+            self._close_heading_boundary_contexts(context)
+        heading_text, leading_markers_consumed = self._consume_leading_semantic_markers(
+            heading_text,
+            context,
+            source_line=source_node.sourceline,
+        )
+        if not heading_text:
+            return
+
         block_match = BLOCK_MARKER_PATTERN.match(heading_text)
         if block_match:
-            self._handle_block_marker(context, block_match.group("tag").lower(), bool(block_match.group("closing")))
+            self._handle_block_marker(
+                context,
+                block_match.group("tag").lower(),
+                bool(block_match.group("closing")),
+                source_line=source_node.sourceline,
+            )
             return
 
         if SIDEBAR_HEADING_PATTERN.match(heading_text):
             self._convert_sidebar_heading(source_node, context)
             return
 
-        level_number = self._resolve_heading_level(source_node, heading_text)
-        level = context.open_level(level_number, source_node.sourceline)
-        self._apply_level_semantics(level, heading_text, level_number)
-        heading = etree.SubElement(level, f"h{level_number}")
-        self._append_heading_text(heading, source_node)
+        if self._convert_semantic_heading(source_node, heading_text, context, convert_inline_page_markers=not leading_markers_consumed):
+            return
+
+        self._convert_paragraph(
+            source_node,
+            context,
+            normalized_text=heading_text,
+            consume_leading_markers=False,
+            convert_inline_page_markers_override=not leading_markers_consumed,
+        )
 
     def _convert_heading_from_paragraph(
         self,
@@ -553,12 +893,227 @@ class DTBookConverter:
             self._convert_sidebar_heading(source_node, context)
             return
 
+        self._create_heading_from_source(source_node, heading_text, level_number, context)
+
+    def _convert_semantic_heading(
+        self,
+        source_node: etree._Element,
+        normalized_text: str,
+        context: ConversionContext,
+        *,
+        convert_inline_page_markers: bool = True,
+    ) -> bool:
+        heading_match = HEADING_WRAPPER_SEARCH_PATTERN.search(normalized_text)
+        if heading_match is None:
+            return False
+
+        self._emit_leading_page_markers(normalized_text[: heading_match.start()], context)
+        self._create_heading_from_source(
+            source_node,
+            normalized_text,
+            int(heading_match.group("level")),
+            context,
+            convert_inline_page_markers=convert_inline_page_markers,
+        )
+        return True
+
+    def _try_complete_pending_split_heading(self, source_node: etree._Element, context: ConversionContext) -> bool:
+        level_number = context.pending_split_heading_level
+        if level_number is None:
+            return False
+        source_tag = self._tag_name(source_node)
+        normalized_text = self._normalized_paragraph_text(source_node)
+        closes_pending_heading = bool(re.search(rf"</h{level_number}>\s*$", normalized_text, re.IGNORECASE))
+        if source_tag != f"h{level_number}" and not closes_pending_heading:
+            return False
+
+        combined_heading_text = " ".join(
+            part
+            for part in (context.pending_split_heading_text.strip(), self._strip_markup_tokens(normalized_text).strip())
+            if part
+        )
+        level = context.open_level(level_number, context.pending_split_heading_line or source_node.sourceline)
+        self._apply_level_semantics(level, combined_heading_text, level_number)
+        heading = etree.SubElement(level, f"h{level_number}")
+        heading.text = f"{context.pending_split_heading_text.strip()} "
+        self._append_heading_text(heading, source_node, context, convert_inline_page_markers=False)
+        if heading.text and len(heading) and not heading.text[-1].isspace():
+            heading.text = f"{heading.text} "
+        if heading.text:
+            heading.text = re.sub(r"\s{2,}", " ", heading.text).strip()
+        for child in heading:
+            if child.tail:
+                child.tail = re.sub(r"\s{2,}", " ", child.tail)
+        context.pending_split_heading_level = None
+        context.pending_split_heading_text = ""
+        context.pending_split_heading_line = None
+        return True
+
+    def _create_heading_from_source(
+        self,
+        source_node: etree._Element,
+        heading_text: str,
+        level_number: int,
+        context: ConversionContext,
+        *,
+        convert_inline_page_markers: bool = True,
+    ) -> None:
         level = context.open_level(level_number, source_node.sourceline)
         self._apply_level_semantics(level, heading_text, level_number)
         heading = etree.SubElement(level, f"h{level_number}")
-        self._append_heading_text(heading, source_node)
+        self._append_heading_text(
+            heading,
+            source_node,
+            context,
+            convert_inline_page_markers=convert_inline_page_markers,
+        )
+
+    def _emit_leading_page_markers(self, text: str, context: ConversionContext) -> None:
+        remaining = text
+        while remaining.strip():
+            page_match = PAGE_MARKER_PATTERN.match(remaining)
+            if page_match is not None:
+                self._append_pagenum(context.base_parent, page_match.group(1).strip(), context)
+                remaining = remaining[page_match.end() :]
+                continue
+
+            open_match = OPEN_PAGE_MARKER_PATTERN.match(remaining)
+            if open_match is not None:
+                self._append_pagenum(context.base_parent, "", context)
+                remaining = remaining[open_match.end() :]
+                continue
+            break
+
+    def _consume_leading_semantic_markers(
+        self,
+        text: str,
+        context: ConversionContext,
+        *,
+        source_line: int | None = None,
+    ) -> tuple[str, bool]:
+        remaining = text
+        consumed_markers = False
+        while remaining.strip():
+            page_match = PAGE_MARKER_PATTERN.match(remaining)
+            if page_match is not None:
+                self._append_pagenum(context.base_parent, page_match.group(1).strip(), context)
+                remaining = remaining[page_match.end() :]
+                consumed_markers = True
+                continue
+
+            hr_match = LEADING_HR_MARKER_PATTERN.match(remaining)
+            if hr_match is not None:
+                context.pending_precedingemptyline = True
+                remaining = remaining[hr_match.end() :]
+                consumed_markers = True
+                continue
+
+            block_match = LEADING_BLOCK_MARKER_PATTERN.match(remaining)
+            if block_match is None:
+                break
+
+            self._handle_block_marker(
+                context,
+                block_match.group("tag").lower(),
+                bool(block_match.group("closing")),
+                source_line=source_line,
+            )
+            remaining = remaining[block_match.end() :]
+            consumed_markers = True
+
+        return remaining.strip(), consumed_markers
+
+    def _consume_trailing_closing_block_markers(self, text: str) -> tuple[str, list[str]]:
+        remaining = text
+        closing_tags: list[str] = []
+        while remaining.strip():
+            closing_match = TRAILING_CLOSING_BLOCK_MARKER_PATTERN.search(remaining)
+            if closing_match is None:
+                break
+            closing_tags.insert(0, closing_match.group("tag").lower())
+            remaining = remaining[: closing_match.start()]
+        return remaining.strip(), closing_tags
+
+    def _apply_trailing_closing_markers(
+        self,
+        context: ConversionContext,
+        closing_tags: list[str],
+        source_line: int | None,
+    ) -> None:
+        for tag in closing_tags:
+            self._handle_block_marker(context, tag, True, source_line=source_line)
+
+    def _capture_split_heading_prefix(
+        self,
+        source_node: etree._Element,
+        paragraph_text: str,
+        context: ConversionContext,
+    ) -> bool:
+        if context.pending_split_heading_level is not None:
+            return False
+        opening_match = OPEN_HEADING_FRAGMENT_PATTERN.match(paragraph_text)
+        if opening_match is None:
+            return False
+        level_number = int(opening_match.group("level"))
+        if re.search(rf"</h{level_number}>\s*$", paragraph_text, re.IGNORECASE):
+            return False
+        prefix_text = self._strip_markup_tokens(paragraph_text)
+        if not prefix_text:
+            return False
+        next_sibling = source_node.getnext()
+        if next_sibling is None:
+            return False
+        next_tag = self._tag_name(next_sibling)
+        next_text = self._normalized_paragraph_text(next_sibling)
+        if next_tag != f"h{level_number}" and not re.search(rf"</h{level_number}>\s*$", next_text, re.IGNORECASE):
+            return False
+        context.pending_split_heading_level = level_number
+        context.pending_split_heading_text = prefix_text
+        context.pending_split_heading_line = source_node.sourceline
+        return True
+
+    def _starts_semantic_heading_after_leading_markers(self, text: str) -> bool:
+        candidate = self._strip_leading_semantic_markers_for_detection(text)
+        return HEADING_WRAPPER_SEARCH_PATTERN.search(candidate) is not None
+
+    def _strip_leading_semantic_markers_for_detection(self, text: str) -> str:
+        remaining = text
+        while remaining.strip():
+            page_match = PAGE_MARKER_PATTERN.match(remaining)
+            if page_match is not None:
+                remaining = remaining[page_match.end() :]
+                continue
+
+            open_match = OPEN_PAGE_MARKER_PATTERN.match(remaining)
+            if open_match is not None:
+                remaining = remaining[open_match.end() :]
+                continue
+
+            hr_match = LEADING_HR_MARKER_PATTERN.match(remaining)
+            if hr_match is not None:
+                remaining = remaining[hr_match.end() :]
+                continue
+
+            block_match = LEADING_BLOCK_MARKER_PATTERN.match(remaining)
+            if block_match is None:
+                break
+
+            remaining = remaining[block_match.end() :]
+        return remaining.strip()
+
+    def _close_heading_boundary_contexts(self, context: ConversionContext) -> None:
+        self._close_open_lists(context)
+        self._close_active_poem(context)
+        self._close_active_blockquote(context)
+        self._close_active_footnote(context)
+        self._close_active_figure(context)
+        context.sidebar_stack.clear()
 
     def _resolve_heading_level(self, source_node: etree._Element, normalized_text: str) -> int:
+        tag_name = self._tag_name(source_node)
+        if re.fullmatch(r"h[1-6]", tag_name):
+            return int(tag_name[1])
+
         embedded_heading = HEADING_MARKER_PATTERN.match(normalized_text)
         if embedded_heading:
             return int(embedded_heading.group("level"))
@@ -567,7 +1122,7 @@ class DTBookConverter:
         if embedded_heading_token:
             return int(embedded_heading_token.group("level"))
 
-        return int(self._tag_name(source_node)[1])
+        return 1
 
     def _apply_level_semantics(self, level: etree._Element, heading_text: str, level_number: int) -> None:
         clean_heading = self._strip_markup_tokens(heading_text).lower()
@@ -660,6 +1215,7 @@ class DTBookConverter:
                     severity=Severity.WARNING,
                     message=f"Referenced image could not be found: {raw_source or '[missing src]'}",
                     file_name=context.current_file,
+                    line=source_node.sourceline,
                     code="missing-image",
                     tag="img",
                 )
@@ -1139,6 +1695,7 @@ class DTBookConverter:
         table = etree.SubElement(parent, "table")
         self._copy_table_children(source_node, table, context)
         if not self._has_meaningful_content(table):
+            self._report_dropped_source_text(source_node, context, reason="table content")
             parent.remove(table)
 
     def _copy_table_children(self, source_node: etree._Element, target_node: etree._Element, context: ConversionContext) -> None:
@@ -1148,7 +1705,10 @@ class DTBookConverter:
         for child in source_node:
             tag = self._tag_name(child)
             if tag not in TABLE_SECTION_TAGS:
-                self._append_inline_content(target_node, child, context, strip_markup_tokens=True)
+                if self._is_likely_block_tag(tag):
+                    self._preserve_block_source_element(target_node, child, context, strip_markup_tokens=True)
+                else:
+                    self._append_inline_node(target_node, child, context, strip_markup_tokens=True)
                 continue
 
             cleaned_attributes = {
@@ -1190,16 +1750,23 @@ class DTBookConverter:
             elif tag in {"ol", "ul"}:
                 self._convert_list(child, target_node, context)
             elif tag == "img":
-                self._convert_image_group(child, target_node, context)
+                image_group = self._convert_image_group(child, target_node, context)
+                self._ensure_image_group_accessibility_placeholders(image_group)
             else:
-                self._append_inline_node(target_node, child, context, strip_markup_tokens=True)
+                if self._is_likely_block_tag(tag):
+                    self._preserve_block_source_element(target_node, child, context, strip_markup_tokens=True)
+                else:
+                    self._append_inline_node(target_node, child, context, strip_markup_tokens=True)
 
             if child.tail:
                 self._append_text_fragments(target_node, child.tail, context, strip_markup_tokens=True)
 
     def _convert_pm_block(self, source_node: etree._Element, parent: etree._Element, context: ConversionContext) -> None:
+        original_poem = context.active_poem
         original_linegroup = context.active_linegroup
-        line_group = etree.SubElement(parent, "linegroup")
+        poem = etree.SubElement(parent, "poem")
+        line_group = etree.SubElement(poem, "linegroup")
+        context.active_poem = poem
         context.active_linegroup = line_group
 
         if source_node.text and source_node.text.strip():
@@ -1220,15 +1787,93 @@ class DTBookConverter:
                 if not self._has_meaningful_content(line):
                     line_group.remove(line)
 
+        context.active_poem = original_poem
         context.active_linegroup = original_linegroup
-        if not self._has_meaningful_content(line_group):
-            parent.remove(line_group)
+        if not self._has_meaningful_content(poem):
+            parent.remove(poem)
+
+    def _convert_footnote_block(self, source_node: etree._Element, parent: etree._Element, context: ConversionContext) -> None:
+        original_footnote = context.active_footnote
+        original_footnote_sequence = context.active_footnote_sequence
+        footnote = self._open_footnote(context, parent)
+        self._convert_container(source_node, context, destination_parent=footnote)
+        context.active_footnote = original_footnote
+        context.active_footnote_sequence = original_footnote_sequence
+        if not self._has_meaningful_content(footnote):
+            self._report_dropped_source_text(source_node, context, reason="footnote block")
+            parent.remove(footnote)
+
+    def _open_footnote(self, context: ConversionContext, parent: etree._Element | None = None) -> etree._Element:
+        context.footnote_counter += 1
+        sequence = context.footnote_counter
+        note_parent = parent if parent is not None else context.current_content_parent
+        note = etree.SubElement(note_parent, "note", id=f"fn_{sequence}_x")
+        context.active_footnote = note
+        context.active_footnote_sequence = sequence
+        return note
+
+    def _assign_active_footnote_id(self, source_node: etree._Element, context: ConversionContext) -> None:
+        footnote = context.active_footnote
+        sequence = context.active_footnote_sequence
+        if footnote is None or sequence is None:
+            return
+        if footnote.get("id") and not footnote.get("id", "").endswith("_x"):
+            return
+        marker = self._footnote_id_marker(source_node, context)
+        footnote.set("id", f"fn_{sequence}_{marker}")
+
+    def _footnote_id_marker(self, source_node: etree._Element, context: ConversionContext) -> str:
+        visible_text = self._strip_markup_tokens(" ".join(part.strip() for part in source_node.itertext() if part.strip()))
+        if not visible_text:
+            return "x"
+        token_match = re.match(r"^\s*(\S+)", visible_text)
+        if token_match is None:
+            return "x"
+        token = token_match.group(1)
+        if token and token[0].isalnum():
+            return re.sub(r"[^0-9A-Za-z]+$", "", token).lower() or "x"
+        context.footnote_symbol_counter += 1
+        return str(context.footnote_symbol_counter)
 
     def _append_pm_line(self, parent: etree._Element, text: str, context: ConversionContext) -> None:
         line = etree.SubElement(parent, "line")
         self._append_text_fragments(line, text, context, pm_mode=True, strip_markup_tokens=True)
         if not self._has_meaningful_content(line):
             parent.remove(line)
+
+    def _open_poem(self, context: ConversionContext) -> None:
+        if context.active_poem is not None and context.active_linegroup is not None:
+            return
+        poem = etree.SubElement(context.current_content_parent, "poem")
+        context.active_poem = poem
+        context.active_linegroup = etree.SubElement(poem, "linegroup")
+
+    def _close_active_poem(self, context: ConversionContext) -> None:
+        poem = context.active_poem
+        line_group = context.active_linegroup
+        if poem is None and line_group is None:
+            return
+        if poem is None and line_group is not None:
+            poem = line_group.getparent()
+        if poem is not None and not self._has_meaningful_content(poem):
+            parent = poem.getparent()
+            if parent is not None:
+                parent.remove(poem)
+        context.active_linegroup = None
+        context.active_poem = None
+
+    def _close_active_footnote(self, context: ConversionContext) -> None:
+        footnote = context.active_footnote
+        if footnote is None:
+            return
+        if not self._has_meaningful_content(footnote):
+            parent = footnote.getparent()
+            if parent is not None:
+                parent.remove(footnote)
+        elif footnote.get("id", "").endswith("_x") and context.active_footnote_sequence is not None:
+            footnote.set("id", f"fn_{context.active_footnote_sequence}_x")
+        context.active_footnote = None
+        context.active_footnote_sequence = None
 
     def _convert_sidebar(self, source_node: etree._Element, parent: etree._Element, context: ConversionContext) -> None:
         sidebar = etree.SubElement(parent, "sidebar", render="required")
@@ -1237,6 +1882,15 @@ class DTBookConverter:
         context.sidebar_stack.pop()
         if not self._has_meaningful_content(sidebar):
             parent.remove(sidebar)
+
+    def _convert_blockquote(self, source_node: etree._Element, parent: etree._Element, context: ConversionContext) -> None:
+        original_blockquote = context.active_blockquote
+        blockquote = etree.SubElement(parent, "blockquote")
+        context.active_blockquote = blockquote
+        self._convert_container(source_node, context, destination_parent=blockquote)
+        context.active_blockquote = original_blockquote
+        if not self._has_meaningful_content(blockquote):
+            parent.remove(blockquote)
 
     def _convert_sidebar_heading(self, source_node: etree._Element, context: ConversionContext) -> None:
         sidebar = self._open_sidebar(context)
@@ -1279,6 +1933,17 @@ class DTBookConverter:
         ]
         for caption_source in caption_sources:
             self._append_figure_caption_candidate(image_group, caption_source, context)
+        for child in direct_children:
+            if child in image_nodes or child in caption_sources:
+                continue
+            child_tag = self._tag_name(child)
+            if self._is_likely_block_tag(child_tag):
+                self._convert_block(child, context, destination_parent=image_group)
+            else:
+                self._append_inline_node(image_group, child, context, strip_markup_tokens=True)
+            if child.tail:
+                self._append_raw_text_to_element(image_group, child.tail)
+        self._ensure_image_group_accessibility_placeholders(image_group)
         return True
 
     def _ensure_figure_caption(self, image_group: etree._Element) -> etree._Element:
@@ -1300,6 +1965,7 @@ class DTBookConverter:
         paragraph = etree.SubElement(caption, "p")
         self._append_inline_content(paragraph, caption_source, context, strip_markup_tokens=True)
         if not self._has_meaningful_content(paragraph):
+            self._report_dropped_source_text(caption_source, context, reason="figure caption content")
             caption.remove(paragraph)
             if not len(caption):
                 image_group.remove(caption)
@@ -1308,11 +1974,75 @@ class DTBookConverter:
         figure = context.active_figure
         if figure is None:
             return
+        has_image = any(self._tag_name(child) == "img" for child in figure)
+        if has_image:
+            self._ensure_image_group_accessibility_placeholders(figure)
+        elif self._has_meaningful_content(figure):
+            self._report_figure_without_image(context)
         if not self._has_meaningful_content(figure):
             parent = figure.getparent()
             if parent is not None:
                 parent.remove(figure)
         context.active_figure = None
+        context.active_figure_line = None
+        context.active_figure_marker_tag = ""
+
+    def _report_figure_without_image(self, context: ConversionContext) -> None:
+        marker_tag = context.active_figure_marker_tag or "fig"
+        report_key = (context.current_file, context.active_figure_line, marker_tag, "missing-figure-image-call")
+        if report_key in context.dropped_text_reports:
+            return
+        context.dropped_text_reports.add(report_key)
+        context.issues.append(
+            ConversionIssue(
+                severity=Severity.WARNING,
+                message=(
+                    f"Image wrapper <{marker_tag}> was preserved as <imggroup>, but no <img src=\"...\"> call was found inside it."
+                ),
+                file_name=context.current_file,
+                line=context.active_figure_line,
+                code="missing-figure-image-call",
+                tag="imggroup",
+            )
+        )
+
+    def _ensure_image_group_accessibility_placeholders(self, image_group: etree._Element) -> None:
+        if self._figure_has_caption_or_prodnote_text(image_group):
+            return
+
+        caption = self._ensure_figure_caption(image_group)
+        if caption.text is None and not len(caption):
+            caption.text = ""
+        prodnote = next((child for child in image_group if self._tag_name(child) == "prodnote"), None)
+        if prodnote is None:
+            insert_at = 2 if len(image_group) >= 2 and self._tag_name(image_group[1]) == "caption" else len(image_group)
+            prodnote = etree.Element("prodnote", render="required")
+            image_group.insert(insert_at, prodnote)
+
+        if not "".join(part.strip() for part in prodnote.itertext()):
+            for child in list(prodnote):
+                prodnote.remove(child)
+            prodnote.text = None
+            placeholder_paragraph = etree.SubElement(prodnote, "p")
+            placeholder_paragraph.text = "Tekst in afbeelding:"
+
+    def _figure_has_caption_or_prodnote_text(self, image_group: etree._Element) -> bool:
+        for child in image_group:
+            if self._tag_name(child) not in {"caption", "prodnote"}:
+                continue
+            if "".join(part.strip() for part in child.itertext()):
+                return True
+        return False
+
+    def _close_active_blockquote(self, context: ConversionContext) -> None:
+        blockquote = context.active_blockquote
+        if blockquote is None:
+            return
+        if not self._has_meaningful_content(blockquote):
+            parent = blockquote.getparent()
+            if parent is not None:
+                parent.remove(blockquote)
+        context.active_blockquote = None
 
     def _append_inline_content(
         self,
@@ -1321,14 +2051,139 @@ class DTBookConverter:
         context: ConversionContext,
         pm_mode: bool = False,
         strip_markup_tokens: bool = False,
+        convert_inline_page_markers: bool = True,
     ) -> None:
-        if source_node.text:
-            self._append_text_fragments(target, source_node.text, context, pm_mode=pm_mode, strip_markup_tokens=strip_markup_tokens)
+        parts = self._iter_inline_parts(source_node)
+        if strip_markup_tokens:
+            parts = self._trim_semantic_marker_edge_parts(parts)
+
+        for part_type, value in parts:
+            if part_type == "text":
+                self._append_text_fragments(
+                    target,
+                    value,
+                    context,
+                    pm_mode=pm_mode,
+                    strip_markup_tokens=strip_markup_tokens,
+                    convert_inline_page_markers=convert_inline_page_markers,
+                )
+            else:
+                self._append_inline_node(
+                    target,
+                    value,
+                    context,
+                    pm_mode=pm_mode,
+                    strip_markup_tokens=strip_markup_tokens,
+                    convert_inline_page_markers=convert_inline_page_markers,
+                )
+
+    def _iter_inline_parts(self, source_node: etree._Element) -> list[tuple[str, str | etree._Element]]:
+        parts: list[tuple[str, str | etree._Element]] = []
+        text_buffer = source_node.text or ""
 
         for child in source_node:
-            self._append_inline_node(target, child, context, pm_mode=pm_mode, strip_markup_tokens=strip_markup_tokens)
+            if self._is_named_anchor_without_href(child):
+                text_buffer += "".join(child.itertext()) + (child.tail or "")
+                continue
+
+            if text_buffer:
+                parts.append(("text", text_buffer))
+                text_buffer = ""
+
+            parts.append(("element", child))
             if child.tail:
-                self._append_text_fragments(target, child.tail, context, pm_mode=pm_mode, strip_markup_tokens=strip_markup_tokens)
+                text_buffer += child.tail
+
+        if text_buffer:
+            parts.append(("text", text_buffer))
+        return parts
+
+    def _trim_semantic_marker_edge_parts(
+        self,
+        parts: list[tuple[str, str | etree._Element]],
+    ) -> list[tuple[str, str | etree._Element]]:
+        if not parts:
+            return parts
+
+        leading_skip = self._semantic_marker_edge_skip_count(parts, from_start=True)
+        trimmed_parts = parts[leading_skip:]
+        if not trimmed_parts:
+            return []
+
+        trailing_skip = self._semantic_marker_edge_skip_count(trimmed_parts, from_start=False)
+        if trailing_skip:
+            trimmed_parts = trimmed_parts[:-trailing_skip]
+        return trimmed_parts
+
+    def _semantic_marker_edge_skip_count(
+        self,
+        parts: list[tuple[str, str | etree._Element]],
+        *,
+        from_start: bool,
+    ) -> int:
+        accumulated_text = ""
+        last_complete_boundary = 0
+        iterable = parts if from_start else list(reversed(parts))
+
+        for index, part in enumerate(iterable, start=1):
+            visible_text = self._inline_part_visible_text(part)
+            if not visible_text and part[0] == "element":
+                break
+
+            if from_start:
+                accumulated_text += visible_text
+                compact_text = self._compact_semantic_marker_text(accumulated_text)
+                consumed_length = self._leading_semantic_token_text_length(compact_text)
+            else:
+                accumulated_text = f"{visible_text}{accumulated_text}"
+                compact_text = self._compact_semantic_marker_text(accumulated_text)
+                consumed_length = self._trailing_semantic_token_text_length(compact_text)
+
+            if not compact_text:
+                last_complete_boundary = index
+                continue
+
+            if consumed_length == len(compact_text):
+                last_complete_boundary = index
+                continue
+
+            if last_complete_boundary:
+                break
+
+        return last_complete_boundary
+
+    @staticmethod
+    def _compact_semantic_marker_text(text: str) -> str:
+        return re.sub(r"\s+", "", unescape(text).replace("\xa0", " "))
+
+    @staticmethod
+    def _leading_semantic_token_text_length(text: str) -> int:
+        position = 0
+        while position < len(text):
+            match = SEMANTIC_TOKEN_TEXT_PATTERN.match(text, position)
+            if match is None:
+                break
+            position = match.end()
+        return position
+
+    @staticmethod
+    def _trailing_semantic_token_text_length(text: str) -> int:
+        end_position = len(text)
+        while end_position > 0:
+            match_at_end: re.Match[str] | None = None
+            for match in SEMANTIC_TOKEN_TEXT_PATTERN.finditer(text, 0, end_position):
+                if match.end() == end_position:
+                    match_at_end = match
+            if match_at_end is None:
+                break
+            end_position = match_at_end.start()
+        return len(text) - end_position
+
+    def _inline_part_visible_text(self, part: tuple[str, str | etree._Element]) -> str:
+        part_type, value = part
+        if part_type == "text":
+            return str(value)
+        return "".join(value.itertext())
 
     def _append_inline_node(
         self,
@@ -1337,16 +2192,39 @@ class DTBookConverter:
         context: ConversionContext,
         pm_mode: bool = False,
         strip_markup_tokens: bool = False,
+        convert_inline_page_markers: bool = True,
     ) -> None:
         tag = self._tag_name(source_node)
         if not tag:
             return
 
+        if tag == "br":
+            self._append_break_space(target)
+            return
+
         if tag in VOID_TAGS:
             return
 
-        if tag == "a" and source_node.get("name"):
-            self._append_inline_content(target, source_node, context, pm_mode=pm_mode, strip_markup_tokens=True)
+        if tag == "a" and source_node.get("name") and not source_node.get("href"):
+            self._append_inline_content(
+                target,
+                source_node,
+                context,
+                pm_mode=pm_mode,
+                strip_markup_tokens=True,
+                convert_inline_page_markers=convert_inline_page_markers,
+            )
+            return
+
+        if tag == "a":
+            self._append_inline_content(
+                target,
+                source_node,
+                context,
+                pm_mode=pm_mode,
+                strip_markup_tokens=strip_markup_tokens,
+                convert_inline_page_markers=convert_inline_page_markers,
+            )
             return
 
         if tag == "page":
@@ -1378,27 +2256,178 @@ class DTBookConverter:
                 return
 
             strong = etree.SubElement(target, "strong")
-            self._append_inline_content(strong, source_node, context, pm_mode=pm_mode, strip_markup_tokens=strip_markup_tokens)
+            self._append_inline_content(
+                strong,
+                source_node,
+                context,
+                pm_mode=pm_mode,
+                strip_markup_tokens=strip_markup_tokens,
+                convert_inline_page_markers=convert_inline_page_markers,
+            )
             if not self._has_meaningful_content(strong):
                 target.remove(strong)
             return
 
         if tag in {"em", "i"} or self._is_italic_span(source_node):
             emphasis = etree.SubElement(target, "em")
-            self._append_inline_content(emphasis, source_node, context, pm_mode=pm_mode, strip_markup_tokens=strip_markup_tokens)
+            self._append_inline_content(
+                emphasis,
+                source_node,
+                context,
+                pm_mode=pm_mode,
+                strip_markup_tokens=strip_markup_tokens,
+                convert_inline_page_markers=convert_inline_page_markers,
+            )
             if not self._has_meaningful_content(emphasis):
                 target.remove(emphasis)
             return
 
         if tag == "img":
-            self._convert_image_group(source_node, target, context)
+            image_group = self._convert_image_group(source_node, target, context)
+            self._ensure_image_group_accessibility_placeholders(image_group)
             return
 
         if tag == "span":
-            self._append_inline_content(target, source_node, context, pm_mode=pm_mode, strip_markup_tokens=strip_markup_tokens)
+            self._append_inline_content(
+                target,
+                source_node,
+                context,
+                pm_mode=pm_mode,
+                strip_markup_tokens=strip_markup_tokens,
+                convert_inline_page_markers=convert_inline_page_markers,
+            )
             return
 
-        self._append_inline_content(target, source_node, context, pm_mode=pm_mode, strip_markup_tokens=strip_markup_tokens)
+        self._preserve_inline_source_element(
+            target,
+            source_node,
+            context,
+            pm_mode=pm_mode,
+            strip_markup_tokens=strip_markup_tokens,
+        )
+
+    def _preserve_inline_source_element(
+        self,
+        target: etree._Element,
+        source_node: etree._Element,
+        context: ConversionContext,
+        pm_mode: bool = False,
+        strip_markup_tokens: bool = False,
+    ) -> etree._Element:
+        _ = pm_mode
+        _ = strip_markup_tokens
+        return self._clone_source_element_as_is(target, source_node, context, mark_root=True)
+
+    def _preserve_block_source_element(
+        self,
+        parent: etree._Element,
+        source_node: etree._Element,
+        context: ConversionContext,
+        strip_markup_tokens: bool = False,
+    ) -> etree._Element:
+        _ = strip_markup_tokens
+        return self._clone_source_element_as_is(parent, source_node, context, mark_root=True)
+
+    def _clone_source_element_as_is(
+        self,
+        parent: etree._Element,
+        source_node: etree._Element,
+        context: ConversionContext,
+        mark_root: bool = False,
+    ) -> etree._Element:
+        tag = self._tag_name(source_node)
+        preserved = etree.SubElement(parent, tag, **self._preserved_attributes(source_node))
+        if mark_root:
+            preserved.set(INTERNAL_PRESERVED_ATTR, "1")
+        self._report_preserved_html_tag(tag, source_node, context)
+        if source_node.text:
+            self._append_raw_text_to_element(preserved, source_node.text)
+
+        for child in source_node:
+            if not self._tag_name(child):
+                continue
+            preserved_child = self._clone_source_element_as_is(preserved, child, context)
+            if child.tail:
+                preserved_child.tail = f"{preserved_child.tail or ''}{child.tail}"
+        return preserved
+
+    @staticmethod
+    def _preserved_attributes(source_node: etree._Element) -> dict[str, str]:
+        return {str(key): value for key, value in source_node.attrib.items()}
+
+    def _report_preserved_html_tag(self, tag: str, source_node: etree._Element, context: ConversionContext) -> None:
+        report_key = (context.current_file, tag)
+        if report_key in context.preserved_tag_reports:
+            return
+        context.preserved_tag_reports.add(report_key)
+        context.issues.append(
+            ConversionIssue(
+                severity=Severity.INFO,
+                message=f"HTML tag <{tag}> has no dedicated DTBook rule and was preserved as-is in the XML output.",
+                file_name=context.current_file,
+                line=source_node.sourceline,
+                tag=tag,
+                code="preserved-html-tag",
+            )
+        )
+
+    def _report_dropped_source_text(
+        self,
+        source_node: etree._Element,
+        context: ConversionContext,
+        *,
+        reason: str,
+    ) -> None:
+        preview = self._source_text_preview(source_node)
+        if not preview:
+            return
+        report_key = (context.current_file, source_node.sourceline, reason, preview)
+        if report_key in context.dropped_text_reports:
+            return
+        context.dropped_text_reports.add(report_key)
+        context.issues.append(
+            ConversionIssue(
+                severity=Severity.WARNING,
+                message=f'Source text could not be converted and was removed from the XML output: "{preview}"',
+                file_name=context.current_file,
+                line=source_node.sourceline,
+                code="dropped-source-text",
+                tag=self._tag_name(source_node),
+            )
+        )
+
+    def _source_text_preview(self, source_node: etree._Element) -> str:
+        preview = self._strip_markup_tokens(" ".join(part.strip() for part in source_node.itertext() if part.strip()))
+        if not preview:
+            return ""
+        return preview if len(preview) <= 140 else f"{preview[:137].rstrip()}..."
+
+    @staticmethod
+    def _is_likely_block_tag(tag: str) -> bool:
+        if not tag:
+            return False
+        if tag in BLOCK_PRESERVE_HINT_TAGS or tag in TABLE_SECTION_TAGS:
+            return True
+        if tag in {"pm", "bl", "ft", "sd", "hsd", "figure", "fig", "page", "ol", "ul", "table"}:
+            return True
+        return bool(re.fullmatch(r"h[1-6]", tag))
+
+    def _append_break_space(self, target: etree._Element) -> None:
+        last_character = self._last_text_character(target)
+        if not last_character or last_character.isspace():
+            return
+        self._append_text_to_element(target, " ")
+
+    @classmethod
+    def _last_text_character(cls, element: etree._Element) -> str:
+        if len(element):
+            last_child = element[-1]
+            if last_child.tail:
+                return last_child.tail[-1]
+            return cls._last_text_character(last_child)
+        if element.text:
+            return element.text[-1]
+        return ""
 
     def _append_text_fragments(
         self,
@@ -1407,22 +2436,26 @@ class DTBookConverter:
         context: ConversionContext,
         pm_mode: bool = False,
         strip_markup_tokens: bool = False,
+        convert_inline_page_markers: bool = True,
     ) -> None:
         if not text:
             return
 
         decoded_text = unescape(text).replace("\xa0", " ")
-        if strip_markup_tokens:
-            decoded_text = MARKUP_TOKEN_PATTERN.sub("", decoded_text)
-
         last_index = 0
 
-        for match in PAGE_MARKER_PATTERN.finditer(decoded_text):
-            self._append_text_segment(target, decoded_text[last_index:match.start()], context)
-            self._append_pagenum(target, match.group(1).strip(), context)
-            last_index = match.end()
+        if convert_inline_page_markers:
+            for match in INLINE_PAGE_MARKER_PATTERN.finditer(decoded_text):
+                segment = decoded_text[last_index:match.start()]
+                if strip_markup_tokens:
+                    segment = MARKUP_TOKEN_PATTERN.sub("", segment)
+                self._append_text_segment(target, segment, context)
+                self._append_pagenum(target, (match.group("content") or "").strip(), context)
+                last_index = match.end()
 
         remaining_text = decoded_text[last_index:]
+        if strip_markup_tokens:
+            remaining_text = MARKUP_TOKEN_PATTERN.sub("", remaining_text)
         if pm_mode:
             pm_index = 0
             for match in LINE_NUMBER_PATTERN.finditer(remaining_text):
@@ -1442,6 +2475,8 @@ class DTBookConverter:
         normalized = re.sub(r"[ \t\f\v]+", " ", text.replace("\n", " "))
         normalized = re.sub(r"\s{2,}", " ", normalized)
         if not normalized.strip():
+            if normalized and DTBookConverter._last_text_character(target) and not DTBookConverter._last_text_character(target).isspace():
+                DTBookConverter._append_text_to_element(target, " ")
             return
         if len(target):
             target[-1].tail = f"{target[-1].tail or ''}{normalized}"
@@ -1463,12 +2498,77 @@ class DTBookConverter:
         page_number = etree.SubElement(target, "pagenum", page=page_type, id=page_id)
         page_number.text = cleaned
 
-    def _append_heading_text(self, target: etree._Element, source_node: etree._Element) -> None:
-        heading_text = " ".join(part.strip() for part in source_node.itertext() if part.strip())
-        target.text = self._strip_markup_tokens(heading_text)
+    def _append_heading_text(
+        self,
+        target: etree._Element,
+        source_node: etree._Element,
+        context: ConversionContext,
+        *,
+        convert_inline_page_markers: bool = True,
+    ) -> None:
+        for part_type, value in self._trim_semantic_marker_edge_parts(self._iter_inline_parts(source_node)):
+            if part_type == "text":
+                self._append_text_fragments(
+                    target,
+                    value,
+                    context,
+                    strip_markup_tokens=True,
+                    convert_inline_page_markers=convert_inline_page_markers,
+                )
+                continue
+
+            child = value
+            tag = self._tag_name(child)
+            if tag == "br":
+                self._append_break_space(target)
+            elif tag == "page":
+                self._append_text_fragments(
+                    target,
+                    "".join(child.itertext()),
+                    context,
+                    strip_markup_tokens=True,
+                    convert_inline_page_markers=convert_inline_page_markers,
+                )
+            else:
+                self._append_inline_node(
+                    target,
+                    child,
+                    context,
+                    strip_markup_tokens=True,
+                    convert_inline_page_markers=convert_inline_page_markers,
+                )
+
+    def _has_renderable_inline_content(self, source_node: etree._Element) -> bool:
+        for part_type, value in self._trim_semantic_marker_edge_parts(self._iter_inline_parts(source_node)):
+            if part_type == "text":
+                cleaned_text = MARKUP_TOKEN_PATTERN.sub("", unescape(str(value)).replace("\xa0", " "))
+                if cleaned_text.strip():
+                    return True
+                continue
+
+            child = value
+            tag = self._tag_name(child)
+            if tag == "span":
+                if self._has_renderable_inline_content(child):
+                    return True
+                continue
+            if tag == "br":
+                continue
+            return True
+
+        return False
 
     @staticmethod
     def _append_text_to_element(target: etree._Element, text: str) -> None:
+        if not text:
+            return
+        if len(target):
+            target[-1].tail = f"{target[-1].tail or ''}{text}"
+        else:
+            target.text = f"{target.text or ''}{text}"
+
+    @staticmethod
+    def _append_raw_text_to_element(target: etree._Element, text: str) -> None:
         if not text:
             return
         if len(target):
@@ -1490,10 +2590,18 @@ class DTBookConverter:
         cleaned_text = MARKUP_TOKEN_PATTERN.sub("", unescape(text))
         if not cleaned_text.strip():
             return
-        paragraph = etree.SubElement(parent, "p")
+        paragraph = self._create_paragraph(parent, context)
         self._append_text_fragments(paragraph, cleaned_text, context, strip_markup_tokens=True)
         if not self._has_meaningful_content(paragraph):
             parent.remove(paragraph)
+
+    @staticmethod
+    def _create_paragraph(parent: etree._Element, context: ConversionContext) -> etree._Element:
+        attributes: dict[str, str] = {}
+        if context.pending_precedingemptyline:
+            attributes["class"] = "precedingemptyline"
+            context.pending_precedingemptyline = False
+        return etree.SubElement(parent, "p", **attributes)
 
     @staticmethod
     def _has_meaningful_content(element: etree._Element) -> bool:
@@ -1509,6 +2617,10 @@ class DTBookConverter:
         if "}" in node.tag:
             return node.tag.split("}", 1)[1].lower()
         return node.tag.lower()
+
+    @classmethod
+    def _is_named_anchor_without_href(cls, node: etree._Element) -> bool:
+        return cls._tag_name(node) == "a" and bool(node.get("name")) and not node.get("href")
 
     def _is_within_print_toc(self, element: etree._Element | None) -> bool:
         current = element
@@ -1570,11 +2682,10 @@ class DTBookConverter:
             return True
         if tag != "p":
             return False
-
-        visible_children = [child for child in node if isinstance(child.tag, str)]
-        if not visible_children:
+        if not "".join(part.strip() for part in node.itertext()):
             return False
-        return all(child.tag.lower() in {"em", "i", "span"} for child in visible_children)
+        blocked_tags = {"blockquote", "imggroup", "linegroup", "list", "pagenum", "poem", "sidebar", "table"}
+        return not any(DTBookConverter._tag_name(child) in blocked_tags for child in node.iterdescendants())
 
     @staticmethod
     def _normalized_paragraph_text(node: etree._Element) -> str:
@@ -1592,17 +2703,41 @@ class DTBookConverter:
         while changed:
             changed = False
             for element in list(root.iter()):
+                if self._is_within_preserved_subtree(element):
+                    continue
                 if self._merge_adjacent_emphasis(element):
                     changed = True
 
-        for element in root.iter():
+        for element in list(root.iter()):
+            if self._is_within_preserved_subtree(element):
+                continue
             self._remove_heading_formatting(element)
 
-        for element in root.iter():
+        for element in list(root.iter()):
+            if self._is_within_preserved_subtree(element):
+                continue
             self._fix_misplaced_bracketed_inline_markup(element)
 
-        for element in root.iter():
+        for element in list(root.iter()):
+            if self._is_within_preserved_subtree(element):
+                continue
             self._normalize_element_text_nodes(element)
+
+        self._hoist_pagenums_outside_paragraphs(root)
+
+    @staticmethod
+    def _is_within_preserved_subtree(element: etree._Element) -> bool:
+        current = element
+        while current is not None:
+            if current.get(INTERNAL_PRESERVED_ATTR) == "1":
+                return True
+            current = current.getparent()
+        return False
+
+    @staticmethod
+    def _clear_internal_preservation_markers(root: etree._Element) -> None:
+        for element in root.iter():
+            element.attrib.pop(INTERNAL_PRESERVED_ATTR, None)
 
     def _merge_adjacent_emphasis(self, parent: etree._Element) -> bool:
         changed = False
@@ -1616,6 +2751,9 @@ class DTBookConverter:
 
             separator = " "
             if current.tail and current.tail.strip():
+                index += 1
+                continue
+            if current.tail:
                 separator = current.tail
             current.tail = None
             self._append_text_to_element(current, separator)
@@ -1694,7 +2832,7 @@ class DTBookConverter:
         if self._tag_name(element) not in {"p", "li"}:
             return False
 
-        blocked_tags = {"pagenum", "list", "table", "linegroup", "sidebar", "imggroup"}
+        blocked_tags = {"blockquote", "imggroup", "linegroup", "list", "pagenum", "poem", "sidebar", "table"}
         return not any(self._tag_name(child) in blocked_tags for child in element.iterdescendants())
 
     def _remove_heading_formatting(self, element: etree._Element) -> None:
@@ -1702,10 +2840,26 @@ class DTBookConverter:
         if tag not in {"h1", "h2", "h3", "h4", "h5", "h6"}:
             return
 
-        plain_text = self._normalized_visible_text(element)
         for child in list(element):
-            element.remove(child)
-        element.text = plain_text
+            if self._tag_name(child) not in {"strong", "span", "b"}:
+                continue
+            self._unwrap_heading_formatting_child(element, child)
+
+    def _unwrap_heading_formatting_child(self, parent: etree._Element, child: etree._Element) -> None:
+        child_index = parent.index(child)
+        if child.text:
+            self._append_text_before_child(parent, child_index, child.text)
+
+        insertion_index = child_index
+        for grandchild in list(child):
+            child.remove(grandchild)
+            parent.insert(insertion_index, grandchild)
+            insertion_index += 1
+
+        trailing_text = child.tail
+        parent.remove(child)
+        if trailing_text:
+            self._append_text_before_child(parent, insertion_index, trailing_text)
 
     def _fix_misplaced_bracketed_inline_markup(self, element: etree._Element) -> None:
         for index, child in enumerate(list(element)):
@@ -1763,6 +2917,17 @@ class DTBookConverter:
     def _append_text_before_child(parent: etree._Element, child_index: int, text: str) -> None:
         if not text:
             return
+        if child_index == 0:
+            existing_text = parent.text or ""
+        else:
+            existing_text = parent[child_index - 1].tail or ""
+        if (
+            existing_text
+            and not existing_text[-1].isspace()
+            and not text[0].isspace()
+            and text[0] not in ",.;:!?)]}>-–—/"
+        ):
+            text = f" {text}"
         if child_index == 0:
             parent.text = f"{parent.text or ''}{text}"
             return
@@ -1836,7 +3001,7 @@ class DTBookConverter:
     def _ensure_inline_tail_spacing(self, element: etree._Element) -> None:
         if self._tag_name(element) not in {"strong", "em", "linenum"} or not element.tail:
             return
-        if element.tail[0].isspace() or element.tail[0] in ",.;:!?)]}>":
+        if element.tail[0].isspace() or element.tail[0] in ",.;:!?)]}>-–—/":
             return
         element.tail = f" {element.tail}"
 
@@ -1855,6 +3020,59 @@ class DTBookConverter:
         if not existing:
             return incoming
         return f"{existing}{incoming}"
+
+    def _hoist_pagenums_outside_paragraphs(self, root: etree._Element) -> None:
+        for paragraph in list(root.iter()):
+            if self._tag_name(paragraph) != "p" or self._is_within_preserved_subtree(paragraph):
+                continue
+            if not any(self._tag_name(child) == "pagenum" for child in paragraph):
+                continue
+            self._split_paragraph_around_pagenums(paragraph)
+
+    def _split_paragraph_around_pagenums(self, paragraph: etree._Element) -> None:
+        parent = paragraph.getparent()
+        if parent is None:
+            return
+
+        paragraph_attributes = dict(paragraph.attrib)
+        fragments: list[etree._Element] = []
+        insertion_nodes: list[etree._Element] = []
+
+        def current_fragment() -> etree._Element:
+            if fragments:
+                return fragments[-1]
+            fragment = etree.Element("p", **paragraph_attributes)
+            fragments.append(fragment)
+            return fragment
+
+        if paragraph.text:
+            current_fragment().text = paragraph.text
+
+        for child in list(paragraph):
+            paragraph.remove(child)
+            if self._tag_name(child) == "pagenum":
+                if fragments and self._has_meaningful_content(fragments[-1]):
+                    insertion_nodes.append(fragments.pop())
+                elif fragments:
+                    fragments.pop()
+                insertion_nodes.append(child)
+                if child.tail:
+                    next_fragment = etree.Element("p", **paragraph_attributes)
+                    next_fragment.text = child.tail
+                    fragments.append(next_fragment)
+                    child.tail = None
+                continue
+
+            fragment = current_fragment()
+            fragment.append(child)
+
+        if fragments and self._has_meaningful_content(fragments[-1]):
+            insertion_nodes.append(fragments.pop())
+
+        paragraph_index = parent.index(paragraph)
+        parent.remove(paragraph)
+        for offset, node in enumerate(insertion_nodes):
+            parent.insert(paragraph_index + offset, node)
 
     def _normalized_visible_text(self, element: etree._Element) -> str:
         return self._normalize_text_fragment(" ".join(part.strip() for part in element.itertext() if part.strip())).strip()
@@ -1887,7 +3105,9 @@ class DTBookConverter:
             "list",
             "li",
             "imggroup",
+            "blockquote",
             "sidebar",
+            "poem",
             "strong",
             "em",
             "table",
@@ -1903,9 +3123,21 @@ class DTBookConverter:
                 local_name = self._tag_name(element)
                 if local_name not in removable_tags:
                     continue
+                if self._is_within_preserved_subtree(element):
+                    continue
+                if local_name == "caption" and self._should_preserve_empty_caption(element):
+                    continue
                 if self._has_meaningful_content(element):
                     continue
                 parent = element.getparent()
                 if parent is not None:
                     parent.remove(element)
                     changed = True
+
+    def _should_preserve_empty_caption(self, element: etree._Element) -> bool:
+        if self._tag_name(element) != "caption":
+            return False
+        parent = element.getparent()
+        if parent is None or self._tag_name(parent) != "imggroup":
+            return False
+        return any(self._tag_name(child) == "prodnote" for child in parent)

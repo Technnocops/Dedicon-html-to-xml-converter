@@ -4,6 +4,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from technocops_ddc.models import ConversionResult, DTBookMetadata, InputDocument, PageRangeSelection
 from technocops_ddc.services.conversion_service import ConversionService
+from technocops_ddc.services.html_validation import HtmlSourceValidator
 
 
 class ConversionWorker(QObject):
@@ -31,6 +32,37 @@ class ConversionWorker(QObject):
                 self.documents,
                 self.metadata,
                 page_range=self.page_range,
+                progress_callback=self._report_progress,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(str(exc))
+            return
+
+        self.finished.emit(result)
+
+    def _report_progress(self, value: int, message: str) -> None:
+        self.progressChanged.emit(value, message)
+
+
+class HtmlValidationWorker(QObject):
+    progressChanged = pyqtSignal(int, str)
+    finished = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(
+        self,
+        validator: HtmlSourceValidator,
+        documents: list[InputDocument],
+    ) -> None:
+        super().__init__()
+        self.validator = validator
+        self.documents = documents
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            result = self.validator.validate_documents(
+                self.documents,
                 progress_callback=self._report_progress,
             )
         except Exception as exc:  # noqa: BLE001

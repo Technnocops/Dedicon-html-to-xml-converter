@@ -51,7 +51,7 @@ APPDATA_DIR = APPDATA_ROOT / PRODUCT_DIR_NAME
 SECURE_STORAGE_DIR = APPDATA_DIR / "secure"
 LICENSE_STATE_PATH = SECURE_STORAGE_DIR / "license_state.dat"
 
-SUPPORTED_HTML_EXTENSIONS = {".html", ".htm"}
+SUPPORTED_HTML_EXTENSIONS = {".html", ".htm", ".xhtml"}
 SUPPORTED_DROP_EXTENSIONS = SUPPORTED_HTML_EXTENSIONS | {".zip"}
 
 DEFAULT_LANGUAGE = "en"
@@ -61,7 +61,8 @@ ACTIVATION_KEY_SECRET = "technocops-ddc-pro-2026-admin"
 
 DEFAULT_GITHUB_REPOSITORY = "https://github.com/Technnocops/Dedicon-html-to-xml-converter"
 GITHUB_REPOSITORY = os.environ.get("TECHNOCOPS_DDC_GITHUB_REPO", DEFAULT_GITHUB_REPOSITORY).strip()
-GITHUB_RELEASE_API = "https://api.github.com/repos/{repository}/releases/latest"
+GITHUB_TOKEN = os.environ.get("TECHNOCOPS_DDC_GITHUB_TOKEN", "").strip()
+GITHUB_RELEASES_API = "https://api.github.com/repos/{repository}/releases"
 HTTP_TIMEOUT_SECONDS = 15
 TEMP_DIR_PREFIX = "technocops_ddc_"
 ALLOW_DEBUG_ENV = "TECHNOCOPS_DDC_ALLOW_DEBUG"

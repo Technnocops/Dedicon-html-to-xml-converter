@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(2, 0, 0, 0),
-    prodvers=(2, 0, 0, 0),
+    filevers=(1, 0, 0, 0),
+    prodvers=(1, 0, 0, 0),
     mask=0x3F,
     flags=0x0,
     OS=0x40004,
@@ -17,11 +17,11 @@ VSVersionInfo(
           [
             StringStruct("CompanyName", "Technocops Technology & Innovation"),
             StringStruct("FileDescription", "Technocops DDC Converter (HTML to XML) Pro"),
-        StringStruct("FileVersion", "2.0.0"),
+        StringStruct("FileVersion", "Release-1.0.0"),
             StringStruct("InternalName", "Technocops_DDC_Converter_HTML_to_XML_Pro"),
             StringStruct("OriginalFilename", "Technocops_DDC_Converter_HTML_to_XML_Pro.exe"),
             StringStruct("ProductName", "Technocops DDC Converter (HTML to XML) Pro"),
-        StringStruct("ProductVersion", "2.0.0")
+        StringStruct("ProductVersion", "Release-1.0.0")
           ]
         )
       ]

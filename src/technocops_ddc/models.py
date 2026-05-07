@@ -11,6 +11,7 @@ from uuid import uuid4
 from .config import DEFAULT_DOC_TYPE, DEFAULT_LANGUAGE
 
 FIXED_PUBLISHER = "Dedicon"
+DEFAULT_PRODUCER = "Continuum Content Solutions"
 DOCUMENT_TYPE_EDUCATIONAL = "sv"
 DOCUMENT_TYPE_READING = "ro"
 DOCUMENT_TYPE_OPTIONS = (
@@ -156,7 +157,7 @@ class DTBookMetadata:
             source_isbn="",
             produced_date=today,
             source_publisher="",
-            producer="",
+            producer=DEFAULT_PRODUCER,
         )
 
     @property
@@ -237,6 +238,18 @@ class SavedOutput:
     @property
     def output_dir(self) -> Path:
         return self.xml_path.parent
+
+
+@dataclass(slots=True)
+class HtmlValidationResult:
+    issues: list[ConversionIssue] = field(default_factory=list)
+    checked_file_count: int = 0
+    report_text: str = ""
+    report_path: Path | None = None
+
+    @property
+    def is_valid(self) -> bool:
+        return not self.issues
 
 
 @dataclass(slots=True)

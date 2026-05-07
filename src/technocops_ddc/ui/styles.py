@@ -72,6 +72,42 @@ QPushButton[variant="secondary"]:hover {
 QPushButton[variant="secondary"]:pressed {
     background: #203554;
 }
+QPushButton[variant="validator"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #0f6dd8,
+        stop:1 #12b9c6);
+    color: #f8fcff;
+    border: 1px solid rgba(91, 232, 255, 0.48);
+}
+QPushButton[variant="validator"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #2384ee,
+        stop:1 #29cfd4);
+    border: 1px solid rgba(138, 241, 255, 0.7);
+}
+QPushButton[variant="validator"]:pressed {
+    background: #105d98;
+}
+QPushButton[state="success"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #1a9b63,
+        stop:1 #35c888);
+    color: white;
+    border: 1px solid rgba(123, 235, 186, 0.65);
+}
+QPushButton[state="success"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #23aa6f,
+        stop:1 #46d797);
+}
+QPushButton[state="success"]:pressed {
+    background: #158653;
+}
+QPushButton[state="warning"] {
+    background: rgba(108, 66, 20, 0.95);
+    color: #ffe9c8;
+    border: 1px solid #b37a36;
+}
 QCheckBox {
     color: #f2f7ff;
     spacing: 10px;

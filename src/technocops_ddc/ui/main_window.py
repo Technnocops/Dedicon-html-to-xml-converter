@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from PyQt6.QtCore import QThread, QTimer, Qt
+from PyQt6.QtCore import QObject, QThread, QTimer, Qt
 from PyQt6.QtGui import QAction, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
@@ -27,10 +27,11 @@ from PyQt6.QtWidgets import (
 
 from technocops_ddc import APP_NAME, APP_VERSION, APP_VERSION_LABEL, COMPANY_NAME
 from technocops_ddc.config import APP_ICON_PATH, APP_LOGO_PATH, COPYRIGHT_LABEL, LOGO_PATH, WINDOW_TITLE
-from technocops_ddc.models import ConversionResult, InputBatch, InputDocument, UpdateInfo
+from technocops_ddc.models import ConversionResult, HtmlValidationResult, InputBatch, InputDocument, UpdateInfo
 from technocops_ddc.services.conversion_service import ConversionService
 from technocops_ddc.services.dtbook_converter import DTBookConverter
 from technocops_ddc.services.file_service import InputCollectionService
+from technocops_ddc.services.html_validation import HtmlSourceValidator
 from technocops_ddc.services.language_service import DocumentLanguageDetector
 from technocops_ddc.services.license_service import LicenseService
 from technocops_ddc.services.metadata_extractor import DocumentMetadataExtractor
@@ -44,7 +45,7 @@ from technocops_ddc.ui.widgets import (
     MetadataSummaryCard,
     PageRangeWidget,
 )
-from technocops_ddc.ui.worker import ConversionWorker
+from technocops_ddc.ui.worker import ConversionWorker, HtmlValidationWorker
 
 
 class MainWindow(QMainWindow):
@@ -53,6 +54,7 @@ class MainWindow(QMainWindow):
         self.file_service = InputCollectionService()
         self.converter = DTBookConverter()
         self.conversion_service = ConversionService(converter=self.converter)
+        self.html_validator = HtmlSourceValidator()
         self.language_detector = DocumentLanguageDetector()
         self.license_service = LicenseService()
         self.license_state = self.license_service.refresh_state(self.license_service.load_state())
@@ -63,10 +65,11 @@ class MainWindow(QMainWindow):
         self.temp_directories: list[TemporaryDirectory[str]] = []
         self.base_result: ConversionResult | None = None
         self.last_result: ConversionResult | None = None
+        self.last_html_validation_result: HtmlValidationResult | None = None
         self.xml_source_label = ""
         self.xml_source_path: Path | None = None
         self.worker_thread: QThread | None = None
-        self.worker: ConversionWorker | None = None
+        self.worker: QObject | None = None
         self.update_in_progress = False
 
         self.setWindowTitle(WINDOW_TITLE)
@@ -103,9 +106,21 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         root_layout.addWidget(splitter, stretch=1)
 
+        footer_row = QWidget()
+        footer_layout = QHBoxLayout(footer_row)
+        footer_layout.setContentsMargins(0, 0, 0, 0)
+        footer_layout.setSpacing(12)
+
         footer = QLabel(f"{COPYRIGHT_LABEL}    |    Version {APP_VERSION_LABEL}")
         footer.setProperty("role", "footer")
-        root_layout.addWidget(footer)
+        footer_layout.addWidget(footer)
+        footer_layout.addStretch(1)
+
+        footer_right = QLabel("Secure | Reliable | Accurate")
+        footer_right.setProperty("role", "footer")
+        footer_layout.addWidget(footer_right, alignment=Qt.AlignmentFlag.AlignRight)
+
+        root_layout.addWidget(footer_row)
 
         status_bar = QStatusBar()
         status_bar.showMessage("Ready")
@@ -253,9 +268,14 @@ class MainWindow(QMainWindow):
         status_row.addWidget(self.progress_label, stretch=1)
         action_buttons = QHBoxLayout()
         action_buttons.setSpacing(8)
+        self.validate_html_button = self._create_button("Validate HTML", self.start_html_validation, secondary=True)
+        self.validate_html_button.setProperty("variant", "validator")
+        self.validate_html_button.style().unpolish(self.validate_html_button)
+        self.validate_html_button.style().polish(self.validate_html_button)
         self.convert_button = self._create_button("Generate XML", self.start_conversion)
         self.save_button = self._create_button("Save XML", self.save_output)
         self.save_button.setEnabled(False)
+        action_buttons.addWidget(self.validate_html_button)
         action_buttons.addWidget(self.convert_button)
         action_buttons.addWidget(self.save_button)
         status_row.addLayout(action_buttons)
@@ -320,7 +340,7 @@ class MainWindow(QMainWindow):
             self,
             "Select HTML Files",
             "",
-            "HTML Files (*.html *.htm)",
+            "HTML Files (*.html *.htm *.xhtml)",
         )
         if paths:
             self._append_batch(self.file_service.collect_from_files([Path(path) for path in paths]))
@@ -358,6 +378,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, APP_NAME, f"No HTML files were found in {batch.source_label}.")
             return
 
+        self.last_html_validation_result = None
         should_reset_metadata = not self.documents
         if self.documents and self._document_series_key(self.documents[0].path.stem) != self._document_series_key(batch.documents[0].path.stem):
             should_reset_metadata = True
@@ -401,9 +422,15 @@ class MainWindow(QMainWindow):
         if self.last_result is not None:
             issues = len(self.last_result.issues)
             badge_text = f"{document_count} files | {issues} issues detected"
+        elif self.last_html_validation_result is not None:
+            if self.last_html_validation_result.is_valid:
+                badge_text = f"{document_count} files | HTML validation passed"
+            else:
+                badge_text = f"{document_count} files | HTML validation issues: {len(self.last_html_validation_result.issues)}"
 
         self.header_widget.set_status(APP_NAME, subtitle, badge_text, self._license_status_text())
         can_use_tool = self.license_service.can_launch(self.license_state)
+        self.validate_html_button.setEnabled(document_count > 0 and self.worker_thread is None and can_use_tool)
         self.convert_button.setEnabled(document_count > 0 and self.worker_thread is None and can_use_tool)
         self.save_button.setEnabled(
             self.last_result is not None
@@ -490,6 +517,7 @@ class MainWindow(QMainWindow):
         self.documents = [document for document in self.documents if document.document_id not in selected_ids]
         self.base_result = None
         self.last_result = None
+        self.last_html_validation_result = None
         self.xml_source_label = ""
         self.xml_source_path = None
         self.xml_preview.clear()
@@ -503,6 +531,7 @@ class MainWindow(QMainWindow):
         self.documents.clear()
         self.base_result = None
         self.last_result = None
+        self.last_html_validation_result = None
         self.xml_source_label = ""
         self.xml_source_path = None
         self.input_preview.clear()
@@ -578,6 +607,34 @@ class MainWindow(QMainWindow):
             if origin_path.suffix.lower() == ".zip":
                 return origin_path
         return document.path
+
+    def start_html_validation(self) -> None:
+        if not self.documents:
+            QMessageBox.warning(self, APP_NAME, "Add at least one HTML file before starting HTML validation.")
+            return
+
+        self.last_html_validation_result = None
+        self.logs_preview.setPlainText(
+            "HTML validation started...\n"
+            "Source files will remain unchanged. Temporary copies are used for validation.\n"
+        )
+        self.preview_tabs.setCurrentWidget(self.logs_preview)
+
+        self.worker_thread = QThread(self)
+        self.worker = HtmlValidationWorker(self.html_validator, list(self.documents))
+        self.worker.moveToThread(self.worker_thread)
+        self.worker_thread.started.connect(self.worker.run)
+        self.worker.progressChanged.connect(self.on_conversion_progress)
+        self.worker.finished.connect(self.on_html_validation_finished)
+        self.worker.failed.connect(self.on_html_validation_failed)
+        self.worker.finished.connect(self._teardown_worker)
+        self.worker.failed.connect(self._teardown_worker)
+        self.worker_thread.start()
+
+        self.progress_bar.setValue(0)
+        self.progress_label.setText("Starting HTML validation...")
+        self.statusBar().showMessage("HTML validation in progress...")
+        self._refresh_state()
 
     def start_conversion(self) -> None:
         if not self.documents:
@@ -657,6 +714,45 @@ class MainWindow(QMainWindow):
                 "Critical validation issues were found. Export is blocked until the issues are resolved or the block option is disabled.",
             )
 
+    def on_html_validation_finished(self, result: object) -> None:
+        if not isinstance(result, HtmlValidationResult):
+            self.on_html_validation_failed("Unexpected HTML validation result type.")
+            return
+
+        self.last_html_validation_result = result
+        self.progress_bar.setValue(100)
+        if result.is_valid:
+            self.progress_label.setText("HTML validation successful 100%.")
+            self.statusBar().showMessage("HTML validation successful 100%.")
+        else:
+            self.progress_label.setText("HTML validation failed. Check error log.")
+            self.statusBar().showMessage("HTML validation failed. Check the error log.")
+
+        self.logs_preview.setPlainText(result.report_text)
+        self.preview_tabs.setCurrentWidget(self.logs_preview)
+        self._refresh_state()
+
+        details = [
+            "Source files were not changed.",
+            "Validation was performed on temporary copies.",
+        ]
+        if result.report_path is not None:
+            details.append(f"Report: {result.report_path}")
+
+        if result.is_valid:
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "HTML validation successful 100%.\n\n" + "\n".join(details),
+            )
+            return
+
+        QMessageBox.warning(
+            self,
+            APP_NAME,
+            "HTML validation failed. Check the error log.\n\n" + "\n".join(details),
+        )
+
     def on_conversion_failed(self, message: str) -> None:
         self.base_result = None
         self.last_result = None
@@ -668,6 +764,16 @@ class MainWindow(QMainWindow):
         self.preview_tabs.setCurrentWidget(self.logs_preview)
         self.statusBar().showMessage("Conversion failed.")
         QMessageBox.critical(self, APP_NAME, f"Conversion failed:\n\n{message}")
+        self._refresh_state()
+
+    def on_html_validation_failed(self, message: str) -> None:
+        self.last_html_validation_result = None
+        self.progress_bar.setValue(0)
+        self.progress_label.setText("HTML validation failed.")
+        self.logs_preview.setPlainText(f"HTML validation failed:\n{message}")
+        self.preview_tabs.setCurrentWidget(self.logs_preview)
+        self.statusBar().showMessage("HTML validation failed.")
+        QMessageBox.critical(self, APP_NAME, f"HTML validation failed:\n\n{message}")
         self._refresh_state()
 
     def _teardown_worker(self, *_args) -> None:
@@ -764,7 +870,7 @@ class MainWindow(QMainWindow):
             + (update_info.summary or "No release notes were provided.")
         )
         update_button = message_box.addButton("Update Now", QMessageBox.ButtonRole.AcceptRole)
-        message_box.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+        message_box.addButton("Skip", QMessageBox.ButtonRole.RejectRole)
         message_box.exec()
 
         clicked_button = message_box.clickedButton()
@@ -800,9 +906,10 @@ class MainWindow(QMainWindow):
                 progress_dialog.setValue(min(downloaded_bytes, total_bytes))
                 downloaded_mb = downloaded_bytes / (1024 * 1024)
                 total_mb = total_bytes / (1024 * 1024)
+                percentage = min(int((downloaded_bytes / total_bytes) * 100), 100) if total_bytes else 0
                 progress_dialog.setLabelText(
                     "Update is in progress...\n\n"
-                    f"Downloading installer... {downloaded_mb:.1f} MB / {total_mb:.1f} MB"
+                    f"Downloading installer... {percentage}%\n{downloaded_mb:.1f} MB / {total_mb:.1f} MB"
                 )
             else:
                 progress_dialog.setRange(0, 0)

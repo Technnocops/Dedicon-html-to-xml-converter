@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import re
 import shutil
 from pathlib import Path
@@ -13,6 +14,8 @@ from technocops_ddc.services.validation import DTBookValidator
 class ConversionService:
     PAGENUM_TAG_PATTERN = re.compile(r"<pagenum\b(?P<attrs>[^>]*)>(?P<content>.*?)</pagenum>", re.IGNORECASE | re.DOTALL)
     LEVEL_TOKEN_PATTERN = re.compile(r"<(?P<closing>/)?(?P<tag>level[1-6])\b(?P<attrs>[^>]*)>", re.IGNORECASE)
+    NO_DECLARATION_PATTERN = re.compile(r"No declaration for (?:element|attribute)\b", re.IGNORECASE)
+    SUPPRESSED_PRESERVED_REPORT_TAGS = {"a", "sub", "sup"}
 
     def __init__(
         self,
@@ -30,7 +33,8 @@ class ConversionService:
         progress_callback: callable | None = None,
     ) -> ConversionResult:
         result = self.converter.convert(documents, metadata, page_range=page_range, progress_callback=progress_callback)
-        validation_issues = self.validator.validate(result.xml_text)
+        result.issues = self._filter_conversion_issues(result.issues)
+        validation_issues = self._filter_validation_issues(self.validator.validate(result.xml_text))
         result.issues.extend(validation_issues)
         result.issues.sort(key=self._issue_sort_key)
         return result
@@ -92,13 +96,14 @@ class ConversionService:
 
     @staticmethod
     def build_error_report(result: ConversionResult) -> dict:
+        filtered_issues = ConversionService._filter_report_issues(result.issues)
         return {
             "summary": {
-                "totalIssues": len(result.issues),
-                "critical": sum(issue.severity == Severity.CRITICAL for issue in result.issues),
-                "errors": sum(issue.severity == Severity.ERROR for issue in result.issues),
-                "warnings": sum(issue.severity == Severity.WARNING for issue in result.issues),
-                "info": sum(issue.severity == Severity.INFO for issue in result.issues),
+                "totalIssues": len(filtered_issues),
+                "critical": sum(issue.severity == Severity.CRITICAL for issue in filtered_issues),
+                "errors": sum(issue.severity == Severity.ERROR for issue in filtered_issues),
+                "warnings": sum(issue.severity == Severity.WARNING for issue in filtered_issues),
+                "info": sum(issue.severity == Severity.INFO for issue in filtered_issues),
             },
             "issues": [
                 {
@@ -109,24 +114,13 @@ class ConversionService:
                     "line": issue.line,
                     "tag": issue.tag,
                 }
-                for issue in result.issues
+                for issue in filtered_issues
             ],
         }
 
     @staticmethod
     def validate_metadata(metadata: DTBookMetadata) -> list[str]:
-        required_fields = {
-            "UID": metadata.uid,
-            "Title": metadata.title,
-            "Author": "ok" if metadata.normalized_authors else "",
-            "Document Type": metadata.doc_type,
-            "Publisher": metadata.publisher,
-            "Language": metadata.language,
-            "Identifier": metadata.identifier,
-            "Source Publisher": metadata.source_publisher,
-            "Producer": metadata.producer,
-        }
-        return [label for label, value in required_fields.items() if not value.strip()]
+        return ["UID"] if not metadata.uid.strip() else []
 
     @staticmethod
     def validate_page_range(page_range: PageRangeSelection | None) -> list[str]:
@@ -146,9 +140,34 @@ class ConversionService:
 
     @staticmethod
     def _build_text_report(issues: list[ConversionIssue]) -> str:
-        if not issues:
+        filtered_issues = ConversionService._filter_report_issues(issues)
+        if not filtered_issues:
             return "No validation issues were detected.\n"
-        return "\n".join(issue.display_text for issue in issues) + "\n"
+        return "\n".join(issue.display_text for issue in filtered_issues) + "\n"
+
+    @classmethod
+    def _filter_conversion_issues(cls, issues: list[ConversionIssue]) -> list[ConversionIssue]:
+        return [issue for issue in issues if not cls._should_hide_preserved_issue(issue)]
+
+    @classmethod
+    def _filter_report_issues(cls, issues: list[ConversionIssue]) -> list[ConversionIssue]:
+        return [
+            issue
+            for issue in issues
+            if not cls._should_hide_preserved_issue(issue) and not cls._should_hide_validation_issue(issue)
+        ]
+
+    @classmethod
+    def _filter_validation_issues(cls, issues: list[ConversionIssue]) -> list[ConversionIssue]:
+        return [issue for issue in issues if not cls._should_hide_validation_issue(issue)]
+
+    @classmethod
+    def _should_hide_preserved_issue(cls, issue: ConversionIssue) -> bool:
+        return issue.code == "preserved-html-tag" and issue.tag.lower() in cls.SUPPRESSED_PRESERVED_REPORT_TAGS
+
+    @classmethod
+    def _should_hide_validation_issue(cls, issue: ConversionIssue) -> bool:
+        return issue.code == "dtd-validation" and bool(cls.NO_DECLARATION_PATTERN.search(issue.message))
 
     def _regenerate_page_ids_in_text(self, xml_text: str) -> str:
         def replace_match(match: re.Match[str]) -> str:

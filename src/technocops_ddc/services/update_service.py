@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -10,10 +11,11 @@ from urllib.parse import urlparse
 
 import requests
 
-from technocops_ddc.config import APPDATA_DIR, GITHUB_RELEASE_API, GITHUB_REPOSITORY, HTTP_TIMEOUT_SECONDS
+from technocops_ddc.config import APPDATA_DIR, GITHUB_RELEASES_API, GITHUB_REPOSITORY, GITHUB_TOKEN, HTTP_TIMEOUT_SECONDS
 from technocops_ddc.models import UpdateInfo
 
 DownloadProgressCallback = Callable[[int, int | None], None]
+RELEASE_TAG_PREFIX = "Release-"
 
 
 class UpdateService:
@@ -21,6 +23,8 @@ class UpdateService:
         self.repository = self._normalize_repository(repository or GITHUB_REPOSITORY)
         self.session = requests.Session()
         self.session.headers.update({"Accept": "application/vnd.github+json"})
+        if GITHUB_TOKEN:
+            self.session.headers.update({"Authorization": f"Bearer {GITHUB_TOKEN}"})
 
     @property
     def is_configured(self) -> bool:
@@ -31,13 +35,14 @@ class UpdateService:
             return None
 
         response = self.session.get(
-            GITHUB_RELEASE_API.format(repository=self.repository),
+            GITHUB_RELEASES_API.format(repository=self.repository),
             timeout=HTTP_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 
-        payload = response.json()
-        latest_version = str(payload.get("tag_name", "")).lstrip("v")
+        payload = self._select_latest_release_payload(response.json())
+        release_tag = str(payload.get("tag_name", "")).strip()
+        latest_version = self._extract_version(release_tag)
         if not latest_version or self._version_tuple(latest_version) <= self._version_tuple(current_version):
             return None
 
@@ -46,12 +51,37 @@ class UpdateService:
         release_notes = payload.get("body", "").strip()
 
         return UpdateInfo(
-            version=latest_version,
+            version=release_tag or latest_version,
             published_at=str(payload.get("published_at", "")),
             summary=release_notes[:1200],
             html_url=str(payload.get("html_url", "")),
             asset_url=str(preferred_asset.get("browser_download_url", "")),
             asset_name=str(preferred_asset.get("name", "")),
+        )
+
+    def _select_latest_release_payload(self, payload: object) -> dict:
+        if isinstance(payload, dict):
+            return payload
+
+        releases = [release for release in payload if isinstance(release, dict)] if isinstance(payload, list) else []
+        production_releases = [
+            release
+            for release in releases
+            if not release.get("draft")
+            and not release.get("prerelease")
+            and str(release.get("tag_name", "")).strip().startswith(RELEASE_TAG_PREFIX)
+        ]
+        candidate_releases = production_releases or [
+            release
+            for release in releases
+            if not release.get("draft") and not release.get("prerelease")
+        ]
+        if not candidate_releases:
+            return {}
+
+        return max(
+            candidate_releases,
+            key=lambda release: self._version_tuple(self._extract_version(str(release.get("tag_name", "")))),
         )
 
     def download_update(
@@ -148,6 +178,14 @@ class UpdateService:
                 digits = "".join(character for character in part if character.isdigit())
                 parts.append(int(digits) if digits else 0)
         return tuple(parts)
+
+    @staticmethod
+    def _extract_version(tag_name: str) -> str:
+        cleaned = tag_name.strip()
+        if not cleaned:
+            return ""
+        match = re.search(r"(\d+(?:\.\d+){1,3})", cleaned)
+        return match.group(1) if match is not None else cleaned.lstrip("vV")
 
     @staticmethod
     def _normalize_repository(value: str) -> str:
